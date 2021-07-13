@@ -1,5 +1,3 @@
-const { addSyntheticLeadingComment } = require('typescript');
-
 const port = process.env.PORT || 3000,
     http = require('http'),
     https = require('https'),

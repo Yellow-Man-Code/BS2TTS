@@ -1,36 +1,101 @@
 const port = process.env.PORT || 3000,
     http = require('http'),
-    https = require('https'),
+    //https = require('https'),
     crypto = require('crypto'),
     fs = require('fs'),
     AdmZip = require('adm-zip'),
     parseXML = require('xml2js').parseString,
-    html = fs.readFileSync('index.html'),
+    //html = fs.readFileSync('bs2tts.html'),
     util = require("util"),
-    url = require("url"),
-    path = require('path');
+    //url = require("url"),
+    path = require('path'),
+    statik = require("node-static"),
+    //xmlBuilder = require("xmlbuilder2"),
+    //FAVICON_PATH = path.join(__dirname, 'favicon.ico'),
+    MODULE_PATH = "lua_modules",
+    HOMEPAGE = "bs2tts.html";
 
-var currentFiles = {};
-    /*
-        {
-            uuid: timeout
-        }
-    */
 
 const ONE_MINUTE = 60000,
     TEN_MINUTES = 600000,
     PATH_PREFIX = "files/",
+    FILE_NAME_REGEX = /(?<name>.+?)(?=.json)/,
     factionKeywordRegex = /Faction: (?<keyword>.+)/,
     abilityTrimRegex = /(?:\d+(?:\.|:)|\d+\-\d+(?:\.|:))?\s*(?<ability>.+)/,
     woundTrackWoundsRemainingRegex = /(?<wounds>\d+\-\d+\+?|\d+\+)(?=\s*wounds(?: remaining)?)/i,
-    woundTrackProfileNameRegex = /(?<name>^[^[\()]+)\s*(?:\[\d\]|\(\w\)| \w )\s*(?:\(\d+\-\d+\+?|\(\d+\+)/,
+    woundTrackProfileNameRegex = /(?<name>^[^[\()]+?)\s*(?:(?:\[\d\]|\(\w\)| \w )\s*(?:\(\d+\-\d+\+?|\(\d+\+)|\s*\(\d+\-\d+\+?|\(\d+\+)/,
     weaponNameWithoutNumberRegex = /^(?:(?<number>\d+)x )?(?<weaponName>.+)/,
     statDamageCheckRegex = /^stat damage /i,
     bracketValueRegex = /(?<min>\d+)\-(?<max>\d+)/,
-    weaponToIgnoreRegex = /of the profiles below/i,
-    woundTrackTypeNameRegex = /^wound track/i,
+    weaponToIgnoreRegex = /of the profiles below|select one of the following profiles/i,
+    woundTrackTypeNameRegex = /^wound track|wound track$/i,
+    psykerNameRegex = /^Psyker \((?<name>.+?)\)/,
+    smiteTestRegex = /^smite\b/i,
+    weaponTypeRegex = /(?<type>.+?)(?:[0-9dD\/ ]+)?$/,
     
-    keywordsToIgnore = ["HQ", "Troops", "Elites", "Fast Attack", "Heavy Support", "Flyer", "Dedicated Transport", "Lord of War", "No Force Org Slot", "Warlord"];
+    keywordsToIgnore = ["HQ", "Troops", "Elites", "Fast Attack", "Heavy Support", "Flyer", "Dedicated Transport", "Lord of War", "No Force Org Slot", "Warlord"],
+    /* convertCharacteristicNames = {
+        "Move": "m",
+        "Weapon Skill": "ws",
+        "Ballistic Skill": "bs",
+        "Strength": "s",
+        "Toughness": "t",
+        "Wounds": "w",
+        "Attacks": "a",
+        "Leadership": "ld",
+        "Save": "sv"
+    }, */
+
+    ERRORS = {
+        invalidFormat: `<h2 class='error'>I can only accept .rosz files.</h2>
+        <p>
+            Please make sure you are attempting to upload your roster and not another file by accident!
+        </p>`
+            .replace(/[\n\r]/g, "\\n"),
+        unknown: `<h2 class='error'>Something went wrong.</h2>
+        <p>
+            Please reach out to Yellow Man in the <a href='https://discord.gg/kKT6JKsdek'>BS2TTS discord server</a>.
+            Please send your .rosz file along with your bug report, and thank you so much for your patience!
+        </p>`
+            .replace(/[\n\r]/g, "\\n"),
+        fileWrite: `<h2 class='error'>Something went wrong while creating your roster.</h2>
+        <p>
+            Please reach out to Yellow Man in the <a href='https://discord.gg/kKT6JKsdek'>BS2TTS discord server</a>.
+            Please send your .rosz file along with your bug report, and thank you so much for your patience!
+        </p>`
+            .replace(/[\n\r]/g, "\\n")
+    },
+    
+    MODULES = {
+        MatchedPlay: {
+            Constants: null,
+            Module: null,
+            ScriptKeys: null
+        },
+        Crusade: {
+            Constants: null,
+            Module: null,
+            ScriptKeys: null
+        }
+    },
+    
+    WEAPON_TYPE_VALUES = {
+        "rapid fire": 0,
+        assault: 0,
+        heavy: 0,
+        macro: 0,
+        pistol: 1,
+        grenade: 2,
+        melee: 3
+    },
+    
+    SANITIZATION_MAPPING = {
+        " & ": " and ",
+        ">": "＞",
+        "<": "＜"
+    },
+    
+    SANITIZATION_REGEX = new RegExp(Object.keys(SANITIZATION_MAPPING).join("|"), "g");
 
 
 
@@ -38,114 +103,168 @@ Array.prototype.union = function(arr) {
     return Array.from(new Set(this.concat(arr))); // set removes duplicates
 };
 
-/**
- * Recursively removes any values that are repeated at least once from the array (in place).
- * Seems like a convoluted way of doing it for something that I think will basically only ever have at most 4
- * values in the array, but I think its a cool solution.
- * @param {number} idx The index to start looking at
- */
-/* Array.prototype.removeRepeatedValuesRecursive = function(idx = 0) {
-    if (idx >= this.length) return;
-
-    let removed = false,
-        last;
-
-    if ((last = this.lastIndexOf(this[idx])) !== idx) { // if there is any repetition
-        for (let i=last;i>=idx;i--) { // start from the end and work backwards so removing doesnt break things
-            if (this[i] === this[idx]) {
-                this.splice(i, 1);
-                removed = true;
-            }
-        }
-    }
-
-    this.removeRepeatedValuesRecursive(removed ? idx : idx++);
-}; */
-
-
 Array.prototype.isAllSameValue = function () {
     return Array.from(new Set(this)).length === 1;
 };
 
 
-const server = http.createServer(function (req, res) {
-    if (req.method === 'POST') {
-        let data = [], dataLength = 0;
+const file = new statik.Server('./site'),
+    currentFiles = new Set(fs.readdirSync(PATH_PREFIX).map(fileName => fileName.match(FILE_NAME_REGEX).groups.name)),
+    server = http.createServer(function (req, res) {
+        if (req.method === 'POST') {
+            let data = [], dataLength = 0;
 
-        req.on('data', chunk => {
-            data.push(chunk);
-            dataLength += chunk.length
-        })
-        .on('end', () => {
-            if (req.url === "/format_and_store_army") {
-                let buf = Buffer.alloc(dataLength);
+            req.on('data', chunk => {
+                data.push(chunk);
+                dataLength += chunk.length
+            })
+            .on('end', () => {
+                let postURL = new URL(`http://${req.headers.host}${req.url}`),
+                    buf = Buffer.alloc(dataLength),
+                    uuid;
+
+                do uuid = crypto.randomBytes(4).toString("hex"); 
+                while (currentFiles.has(uuid));
+
+                currentFiles.add(uuid);
 
                 for (let i = 0, len = data.length, pos = 0; i < len; i++) { 
                     data[i].copy(buf, pos); 
                     pos += data[i].length; 
-                } 
+                } ;
+
+                if (postURL.pathname === "/format_and_store_army" || postURL.pathname === "/getFormattedArmy") {
+                    try {
+                        let zip = new AdmZip(buf),
+                            zipEntries = zip.getEntries();
+                    
+                        for (let i = 0; i < zipEntries.length; i++)
+                            parseXML(zip.readAsText(zipEntries[i]), (_err, result) => {
+                                fs.writeFile("output.json", JSON.stringify(result.roster.forces, null, 4), () =>{})
+                                //parseRos(result.roster.forces);
+                                let armyDataObj = parseRos(result.roster.forces);
+
+                                if (postURL.pathname === "/format_and_store_army") {
+                                    armyDataObj.uiHeight = postURL.searchParams.get('uiHeight');
+                                    armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
+                                    armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
+
+                                    fs.writeFile(`${PATH_PREFIX}${uuid}.json`, 
+                                                JSON.stringify(armyDataObj, replacer)
+                                                    .replace(" & ", " and "), 
+                                                (err) => {
+                                                    let content,status;
             
-                let zip = new AdmZip(buf);
-                let zipEntries = zip.getEntries();
-                let uuid;
-
-                do uuid = crypto.randomBytes(4).toString("hex"); 
-                while (currentFiles[uuid])
+                                                    if (!err) {
+                                                        content = `{ "id": "${uuid}" }`;
+                                                        status = 200;
+                                                    }
+                                                    else {
+                                                        content = `{ "err": "${ERRORS.fileWrite}" }`;
+                                                        status = 500
+                                                    }
             
-            
-                for (let i = 0; i < zipEntries.length; i++)
-                    parseXML(zip.readAsText(zipEntries[i]), function (err, result) {
-                        fs.writeFile("output.json", JSON.stringify(result.roster.forces, null, 4), () =>{})
-                        //parseRos(result.roster.forces);
-                        fs.writeFile(`${PATH_PREFIX}${uuid}.json`, 
-                                    JSON.stringify(parseRos(result.roster.forces), replacer)
-                                        .replace(" & ", " and "), 
-                                    (err) => {
-                                        let content;
-
-                                        if (!err) {
-                                            content = `{ "id": "${uuid}" }`;
-                                            /* currentFiles[uuid] = setTimeout(() => {
-                                                fs.unlink(`${PATH_PREFIX}${uuid}.json`, () => {});
-                                            }, TEN_MINUTES) */
-                                        }
-                                        else
-                                            content = `{ "message": "${err}" }`;
-
-                                        sendHTTPResponse(res, content);
-                                    });
-                        //console.log(JSON.stringify(result.roster.forces, null, 4));
-                    });
-            }
-        });
-    } 
-    else {
-        if (req.url === "/favicon.ico")
-            sendHTTPResponse(res, "");
-        
-        else if (req.url === "/")
-            sendHTTPResponse(res, html, 200, 'text/html');
-        
-        else {
-            let getURL = new URL(`http://${req.headers.host}${req.url}`);
-
-            if (getURL.pathname === "/get_army_by_id") {
-                let id = getURL.searchParams.get('id');
-
-                fs.readFile(`${PATH_PREFIX}${id}.json`, (err, data) => {
-                    if (err)
-                        sendHTTPResponse(res, `{ "message": "${err}" }`, 404);
-
-                    else {
-                        sendHTTPResponse(res, data);
-
-                        //fs.unlink(`${PATH_PREFIX}${id}.json`, () => {});
+                                                    sendHTTPResponse(res, content, status);
+                                                });
+                                }
+                                else
+                                    sendHTTPResponse(res, JSON.stringify(armyDataObj, replacer), 200);
+                            });
                     }
-                });
-            }
+                    catch (err) {
+                        if (err.toString().includes("Invalid or unsupported zip format.")) {
+                            sendHTTPResponse(res, `{ "err": "${ERRORS.invalidFormat}" }`, 415);
+                            console.log(err);
+                        }
+                        else {
+                            sendHTTPResponse(res, `{ "err": "${ERRORS.unknown}" }`, 500);
+                            console.log(err);
+                        }
+                    }
+                }
+
+                else if (postURL.pathname === "/getArmyCode") {
+                    try {                   
+                        let armyData = JSON.parse(buf.toString());
+                        
+                        sendHTTPResponse(res, `{ "code": "${uuid}" }`, 200);
+                        
+                        formatAndStoreXML(  uuid, 
+                                            armyData.order, 
+                                            armyData.units,
+                                            postURL.searchParams.get('uiHeight'),
+                                            postURL.searchParams.get('uiWidth'),
+                                            postURL.searchParams.get('decorativeNames'),
+                                            buildScript(postURL.searchParams.get("modules").split(",")));
+
+                        /* if (postURL.pathname === "/format_and_store_army") {
+                            armyDataObj.uiHeight = postURL.searchParams.get('uiHeight');
+                            armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
+                            armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","))
+
+                            fs.writeFile(`${PATH_PREFIX}${uuid}.json`, 
+                                        JSON.stringify(armyDataObj, replacer)
+                                            .replace(" & ", " and "), 
+                                        (err) => {
+                                            let content,status;
+    
+                                            if (!err) {
+                                                content = `{ "id": "${uuid}" }`;
+                                                status = 200;
+                                            }
+                                            else {
+                                                content = `{ "err": "${ERRORS.fileWrite}" }`;
+                                                status = 500
+                                            }
+    
+                                            sendHTTPResponse(res, content, status);
+                                        });
+                        }
+
+                        else
+                            sendHTTPResponse(res, JSON.stringify(armyDataObj, replacer).replace(" & ", " and "), 200); */
+                    }
+                    catch (err) {
+                        sendHTTPResponse(res, `{ "err": "${ERRORS.unknown}" }`, 500);
+                        console.log(err);
+                    }
+                }
+            });
         } 
-    }
-});
+        else if (req.method === "GET") {
+            if (req.url === "/favicon.ico")
+                file.serveFile('/img/favicon.ico', 200, {}, req, res);
+            
+            else if (req.url === "/")
+                file.serveFile(HOMEPAGE, 200, {}, req, res);
+            
+            else {
+                let getURL = new URL(`http://${req.headers.host}${req.url}`);
+
+                if (getURL.pathname === "/get_army_by_id") {
+                    const id = getURL.searchParams.get('id').trim(),
+                        fileData = fs.readFileSync(`${PATH_PREFIX}${id}.json`);
+
+                    if (!fileData) 
+                        sendHTTPResponse(res, `{ "err": "Roster not found!" }`, 404);
+
+                    else
+                        sendHTTPResponse(res, fileData);
+
+                    /* fs.readFile(`${PATH_PREFIX}${id}.json`, (err, data) => {
+                        if (err) 
+                            sendHTTPResponse(res, `{ "err": "Roster not found!" }`, 404);
+
+                        else
+                            sendHTTPResponse(res, data);
+                    }); */
+                }
+
+                else
+                    file.serve(req, res);
+            } 
+        }
+    });
 
 /**
  * Sends an http response with the given ServerResponse
@@ -163,6 +282,7 @@ function sendHTTPResponse(response, data, code = 200, contentType = 'application
 
 // Listen on port 3000, IP defaults to 127.0.0.1
 server.listen(port);
+loadModules();
 
 // Put a friendly message on the terminal
 console.log('Server running at http://127.0.0.1:' + port + '/');
@@ -188,6 +308,50 @@ setInterval(() => {
     //let stats = fs.statSync("/dir/file.txt");
     //let mtime = stats.mtime;
 }, ONE_MINUTE);
+
+
+function loadModules() {
+    let moduleMapText = fs.readFileSync(path.join(MODULE_PATH, "module_mapping.json"));
+
+    for (const [name, module] of Object.entries(JSON.parse(moduleMapText))) {
+        if (!MODULES[name]) continue;
+        for (const [field, fieldData] of Object.entries(module)) {
+            if (field === "ScriptKeys")
+                MODULES[name].ScriptKeys = fieldData;
+            else
+                MODULES[name][field] = fs.readFileSync(path.join(MODULE_PATH, fieldData));
+        }
+    }
+}
+
+/**
+ * Formats the given modules into the appropriate lua scripting string to be given to units
+ * @param {string[]} modules An array containing the names of the modules to be loaded
+ * @returns A string containing the fully formatted lua scripting for the army
+ */
+function buildScript(modules) {
+    let scripts = [],
+        scriptingMap = [],
+        modulesToLoad = modules.map(name => MODULES[name])
+                                .filter(module => module);
+
+        scriptingMap.length = 10;
+
+    // load constants first because I always want them at the top
+    scripts.push("local scriptingFunctions");
+    scripts.push(...modulesToLoad.map(module => module.Constants));
+    scripts.push(...modulesToLoad.map(module => module.Module));
+
+    scriptingMap.fill("\tnone");
+    
+    for (const map of modulesToLoad.map(module => module.ScriptKeys))
+        for (const [key, func] of Object.entries(map))
+            scriptingMap[parseInt(key, 10)-1] = `\t--[[${key}]]${" ".repeat(3-key.length)+func}`;
+
+    scripts.push(`-- this needs to be defined after all scripting functions\nscriptingFunctions = {\n${scriptingMap.join(",\n")}\n}`);
+
+    return "\n".repeat(5) + scripts.join("\n".repeat(5));
+}
 
 
 
@@ -228,14 +392,14 @@ class Model {
     }
 
     handleSelectionDataRecursive (selectionData) {
-        for (let selection of selectionData[0].selection) {
-            if (selection.profiles)
-                for (let profile of selection.profiles[0].profile)
+        for (const selection of selectionData[0].selection) {
+            if (selection.profiles && selection.profiles[0] !== "")
+                for (const profile of selection.profiles[0].profile)
                     switch (profile.$.typeName.toLowerCase()) {
                         case "weapon": 
                             let ignore = -1;
 
-                            for (let char of profile.characteristics[0].characteristic) {
+                            for (const char of profile.characteristics[0].characteristic) {
                                 if (char.$.name === "Type" && (char._ === "-" || !char._))
                                     ignore++;
                     
@@ -252,7 +416,7 @@ class Model {
                             break;
                     }
             
-            if (selection.selections)
+            if (selection.selections && selection.selections[0] !== "")
                 this.handleSelectionDataRecursive(selection.selections);
         }
     }
@@ -275,7 +439,7 @@ class Model {
         
         if (this.abilities.length !== otherModel.abilities.length) return false;
         else
-            for (let ability of this.abilities)
+            for (const ability of this.abilities)
                 if (!otherModel.abilities.includes(ability)) 
                     return false;
         
@@ -343,7 +507,7 @@ class ModelCollection {
         //log(selectionData);
         //console.log("selections: " + selectionData);
 
-        if (selectionData)
+        if (selectionData && selectionData[0] !== "" && selectionData[0].selection)
             newModel.handleSelectionDataRecursive(selectionData);
 
         this.add(newModel);
@@ -361,8 +525,8 @@ class ModelCollection {
             return this.models[model].find(curModel => curModel.number > 0); // ignore models with number 0
         }
             
-        if (this.models.hasOwnProperty(model.name))
-            for (let m of this.models[model.name])
+        if (this.models[model.name])
+            for (const m of this.models[model.name])
                 if (model.isEqualTo(m))
                     return m;
         
@@ -456,40 +620,41 @@ class Unit {
 
 
     constructor (name, decorativeName, isSingleModel) {
-        this.name = name;
+        this.name = name.trim();
         this.decorativeName = decorativeName;
         this.isSingleModel = isSingleModel;
     }
 
 
-    addModelProfileData (profileData, selectionData, number) {
+    addModelProfileData (profileData, differentName) {
         //this.models.addModelFromData(profileData.$.name, selectionData, number);
+        let profileName = differentName ? differentName.trim() : profileData.$.name.trim();
 
-        if (!this.modelProfiles[profileData.$.name]) {
-            let data = { name: profileData.$.name };
+        if (!this.modelProfiles[profileName]) {
+            let data = { name: profileName };
 
-            for (let char of profileData.characteristics[0].characteristic)
+            for (const char of profileData.characteristics[0].characteristic)
                 if (char.$.name.toLowerCase() === "save")
-                    data.sv = char._
+                    data.sv = char._.trim()
                 else
-                    data[char.$.name.toLowerCase()] = char._
+                    data[char.$.name.toLowerCase()] = char._.trim()
 
-            this.modelProfiles[profileData.$.name] = data;
+            this.modelProfiles[profileName] = data;
         }
     }
 
     addModelSimpleData (name, selectionData, number) {
-        this.models.addModelFromData(name, selectionData, number);
+        this.models.addModelFromData(name.trim(), selectionData, number);
     }
 
     addAbility (profileData) {
         let trimmedName = profileData.$.name.match(abilityTrimRegex).groups.ability,
-            bracketReplace = { "[": "(", "]": ")" }
+            dangerousReplace = { "[": "(", "]": ")", '"': '\\"' }
 
         if (!this.abilities[trimmedName])
             this.abilities[trimmedName] = { 
                 name: trimmedName, 
-                desc: profileData.characteristics[0].characteristic[0]._.replace(/[\[\]]/g, m => bracketReplace[m]) 
+                desc: profileData.characteristics[0].characteristic[0]._.replace(/[\[\]"]/g, m => dangerousReplace[m]) 
             };
     }
 
@@ -504,7 +669,7 @@ class Unit {
         let data = { name: weaponData.$.name },
             mightIgnore = false;
         
-        for (let char of weaponData.characteristics[0].characteristic) {
+        for (const char of weaponData.characteristics[0].characteristic) {
             if (char.$.name === "Type" && (char._ === "-" || !char._)) {
                 if (mightIgnore) return;
                 else mightIgnore = true;
@@ -515,7 +680,7 @@ class Unit {
                 else mightIgnore = true;
             }
 
-            data[char.$.name.toLowerCase()] = char._
+            data[char.$.name.toLowerCase()] = char._;
         }
 
         if (!data.abilities) 
@@ -542,8 +707,9 @@ class Unit {
             bracket = "";
             
         for (const char of bracketData.characteristics[0].characteristic) {
-            if (char.$.name !== "Remaining W")
+            if (char.$.name !== "Remaining W" && char.$.name !== "Wounds")
                 data.push(char._);
+            
             else {
                 if (!char._ || char._ === "-") return;
 
@@ -556,6 +722,7 @@ class Unit {
         
         if (statDamageCheckRegex.test(modelName)) {
             // first check for a predefined model profile that this bracket should match
+            // this seems problematic
             let firstName = this.getFirstChangingProfile();
 
             if (firstName)
@@ -579,14 +746,20 @@ class Unit {
 
 
     handleSelectionDataRecursive (selectionData, parentSelectionData, isTopLevel = false) {
-        let selectionType = "";
-
+        //let selectionType = "";
         switch (selectionData.$.type.toLowerCase()) {
             case "model":
+                // sometimes the data creators mark a unit as a "model" for whatever reason,
+                // then later on describe the actual models in the unit (marking those as "unit" ugh)
+                if (selectionData.selections && 
+                    selectionData.selections[0] !== "" && 
+                    selectionData.selections[0].selection.findIndex(selection => selection.$.type.toLowerCase() === "unit") >= 0)
+                    break;
+
                 this.addModelSimpleData(selectionData.$.name, selectionData.selections, selectionData.$.number);
                 break;
             case "unit":
-                if (selectionData.selections) {
+                if (selectionData.selections && selectionData.selections[0] !== "") {
                     let found = false;
         
                     // search selections for models or units.
@@ -597,7 +770,7 @@ class Unit {
                             break;
                         }
         
-                        else if (selection.profiles) {
+                        else if (selection.profiles && selection.profiles[0] !== "") {
                             for (const profile of selection.profiles[0].profile) {
                                 if (profile.$.typeName.toLowerCase() === "unit") {
                                     found = true;
@@ -608,8 +781,6 @@ class Unit {
                             if (found) break;
                         }
                     }
-
-                    console.log(selectionData.selections)
         
                     if (!found)
                         this.addModelSimpleData(selectionData.$.name, selectionData.selections, selectionData.$.number);
@@ -617,6 +788,18 @@ class Unit {
                 break;
             case "upgrade":
                 if (!parentSelectionData || parentSelectionData.$.type.toLowerCase() === "model") break;
+                if (selectionData.profiles && selectionData.profiles[0] !== "") {
+                    let found = false;
+
+                    for (const profile of selectionData.profiles[0].profile){
+                        if (profile.$.typeName.toLowerCase() === "unit" || profile.$.typeName.toLowerCase() === "model") {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (found) break;
+                }
                 // Sometimes the data creators mark models as "upgrade"s without even providing 
                 // a clue that theyre supposed to be models. This tries to catch that at least in a special
                 // case (Space Marine Bike Squad). Basically, if the model profile's name can be found in an upgrade's name,
@@ -633,7 +816,7 @@ class Unit {
                 break;
         }
 
-        if (selectionData.profiles) {
+        if (selectionData.profiles && selectionData.profiles[0] !== "") {
             for (const profile of selectionData.profiles[0].profile) {
                 switch (profile.$.typeName.toLowerCase()) {
                     case "unit": 
@@ -642,11 +825,16 @@ class Unit {
                             selectionData.$.type.toLowerCase() !== "unit" &&
                             selectionData.$.type.toLowerCase() !== "model" &&
                             (!isTopLevel || // special case for top level of selection data being marked as upgrade
-                                (selectionData.selections &&
+                                (selectionData.selections && selectionData.selections[0] !== "" &&
                                     selectionData.selections[0].selection.findIndex(selection => selection.$.type === "model") < 0))) // another special case for characters being marked as upgrade
                                 this.addModelSimpleData(profile.$.name, selectionData.selections, selectionData.$.number);
 
-                        this.addModelProfileData(profile, selectionData.selections, selectionData.$.number);
+                        if (selectionData.$.type.toLowerCase() === "model" && 
+                            selectionData.$.name !== profile.$.name &&
+                            !profile.$.name.match(woundTrackProfileNameRegex))
+                            this.addModelProfileData(profile, selectionData.$.name);
+                        else 
+                            this.addModelProfileData(profile);
                         break;
                     case "abilities":
                         this.addAbility(profile);
@@ -659,7 +847,16 @@ class Unit {
                         break;
                     case "psyker":
                         if (!this.psykerProfiles) this.psykerProfiles = [];
-                        let psykerProfile = {}; // there should only be one per profile
+                        let matchedName = profile.$.name.match(psykerNameRegex),
+                            psykerName = matchedName ? matchedName.groups.name : profile.$.name,
+                            psykerProfile;//matchedName ? matchedName.groups.name : profile.$.name }; // there should only be one per profile
+
+                        for (const model of this.models)
+                            if (psykerName === model.name)
+                                psykerProfile = { name: psykerName };
+
+                        if (!psykerProfile)
+                            psykerProfile = { name: this.name };
 
                         for (const char of profile.characteristics[0].characteristic) {
                             if (char.$.name.toLowerCase() === "powers known") psykerProfile.known = char._;
@@ -683,31 +880,35 @@ class Unit {
                         // Special Cases
                         let isStatDamage = statDamageCheckRegex.test(profile.$.typeName.toLowerCase())
 
-                        // handle DKoK vehicle wound tracks
+                        // handle IG vehicle wound tracks
                         if (isStatDamage)
-                            this.addBracket(profile, this.name);
+                            this.addBracket(profile, parentSelectionData ? parentSelectionData.$.name : this.name);//this.name);
 
-                        // sometimes the data creators like to put extra stuff after "Wound Track"
+                        // sometimes the data creators like to put extra stuff before or after "Wound Track"
                         if (profile.$.typeName.match(woundTrackTypeNameRegex))
                             this.addBracket(profile, selectionData.$.name)
+
+                        // very rarely, a data creator will put an unexpected typeName for a model profile
+                        if (profile.$.name.match(woundTrackWoundsRemainingRegex))
+                            this.addModelProfileData(profile)
                 }
             }
         }
 
-        if (selectionData.rules)
+        if (selectionData.rules && selectionData.rules[0] !== "")
             for (const rule of selectionData.rules[0].rule)
                 this.addRule(rule);
 
-        if (selectionData.selections)
+        if (selectionData.selections && selectionData.selections[0] !== "")
             for (const selection of selectionData.selections[0].selection)
                 this.handleSelectionDataRecursive(selection, selectionData); // recursively search selections
                             
 
-        if (selectionData.categories)
+        if (selectionData.categories && selectionData.categories[0] !== "")
             for (const category of selectionData.categories[0].category)
                     this.addKeyword(category);
 
-        if (selectionData.costs)
+        if (selectionData.costs && selectionData.costs[0] !== "")
             for (const cost of selectionData.costs[0].cost)
                 if (cost.$.name.trim() === "PL") {
                     this.addPL(parseInt(cost.$.value, 10));
@@ -716,11 +917,15 @@ class Unit {
     }
 
     update () {
+        //log(this)
         this.addAbilitiesToAllModels();
         this.checkWeapons();
         this.checkForStrangeWoundTrackFormatting();
         this.sortWoundTracks();
         this.addSmiteIfNecessary();
+        this.makeSureWoundTrackNameExists();
+        this.checkIfIsSingleModel();
+        this.checkModelNames();
         log(this);
         
         return this;
@@ -749,16 +954,18 @@ class Unit {
         let assignedWeapons = this.models.getAllWeaponNames(),
             unassignedWeapons = Object.keys(this.weapons)
                                     .filter(weaponName => !assignedWeapons.includes(weaponName))
-                                    .map(weaponName => { return { name: weaponName, number: 1 }}),
-            assigned = false;
+                                    .map(weaponName => { return { name: weaponName, number: 1 }});
         
-        for (let model of this.models)
+        /* for (const model of this.models)
             if (model.weapons.length === 0) {
                 model.setWeapons(unassignedWeapons);
                 assigned = true;
-            }
-
-        if (!assigned)
+            } */
+        if (assignedWeapons.length === 0) {
+            for (const model of this.models)
+                model.setWeapons(unassignedWeapons);
+        }
+        else
             this.unassignedWeapons = unassignedWeapons;
     }
 
@@ -780,10 +987,10 @@ class Unit {
                 characteristics,
                 defaultProfile,
                 profileName;
-                console.log(this.models.models)
+                
             // hopefully fix some special cases where data creators named bracket profiles wrong
             // if there's only one kind of model in the unit, assume all the bracket profiles are for that model
-             if (Object.keys(this.models.models).length == 1 && 
+            if (Object.keys(this.models.models).length == 1 && 
                     Object.keys(this.modelProfiles).findIndex(name => !name.match(woundTrackWoundsRemainingRegex)) < 0) {
                 bracketProfiles[this.name] = Object.values(this.modelProfiles);
                 profileName = this.name;
@@ -797,6 +1004,10 @@ class Unit {
                             bracketProfiles[profileName] = [profile];
                         else
                             bracketProfiles[profileName].push(profile);
+
+                        // if the data creator just included the already formatted profile, ignore it
+                        if (otherProfiles[profileName])
+                            delete otherProfiles[profileName];
                     }
                     else
                         otherProfiles[name] = profile;
@@ -814,7 +1025,6 @@ class Unit {
                     this.models.add(new Model(key));
             
             // sort the profiles so that we can be sure to pick the one that has the wounds for later
-            console.log(bracketProfiles)
             for (const profiles of Object.values(bracketProfiles)) {
                 profiles.sort((a,b) => {
                     let aWounds = a.name.match(woundTrackWoundsRemainingRegex).groups.wounds,
@@ -842,8 +1052,9 @@ class Unit {
 
                     for (const model of this.models) {
                         if (model.name === bracket.name) {
-                            if (replaced)
+                            if (replaced) 
                                 this.models.remove(model.name);
+                                
                             else {
                                 replaced = true;
                                 model.name = profileName;
@@ -855,7 +1066,7 @@ class Unit {
                         if (key === "name")
                             this.woundTrack[profileName][characteristic.match(woundTrackWoundsRemainingRegex).groups.wounds] = [];
                         
-                        else
+                        else if (characteristics[key])
                             characteristics[key].push(characteristic);
                     }
                 }
@@ -916,7 +1127,7 @@ class Unit {
             if (!this.powersKnown) this.powersKnown = [];
 
             for (const power of this.powersKnown)
-                if (power.name.toLowerCase() === "smite")
+                if (smiteTestRegex.test(power.name))
                     return;
 
             // the only way to get here is if smite was not found
@@ -926,6 +1137,61 @@ class Unit {
                 range: "18\"",
                 details: "If manifested, the closest visible enemy unit within 18\" of the psyker suffers D3 mortal wounds. If the result of the Psychic test was more than 10 the target suffers D6 mortal wounds instead."
             });
+        }
+    }
+
+    /**
+     * If a name for a wound track doesnt exist, it might be a plural of one of the model profiles
+     */
+    makeSureWoundTrackNameExists () {
+        if (this.woundTrack) {
+            let found = [];
+
+            loop1: for (const name of Object.keys(this.woundTrack)) {
+                for (const model in this.models)
+                    if (name === model.name) continue loop1;
+
+                // only way to get here is if theres a wound track that hasn't matched a model name
+                for (const model of this.models) { // yes I know this looks inefficient
+                    if (name.slice(0, -1) === model.name) { // remove the last letter and compare (ie remove "s" from a plural)
+                        found.push({ wtName: name, modelName: model.name });
+                        continue loop1;
+                    } 
+                }
+            }
+
+            for (const find of found) {
+                this.woundTrack[find.modelName] = this.woundTrack[find.wtName];
+                delete this.woundTrack[find.wtName];
+            }
+        }
+    }
+
+    /**
+     * Just makes sure single model units are marked as such
+     */
+    checkIfIsSingleModel () {
+        if (this.models.totalNumberOfModels === 1)
+            this.isSingleModel = true;
+    }
+
+    /**
+     * Checks to makes sure that all model names match a model profile
+     */
+    checkModelNames () {
+        for (const model of this.models) {
+            if (!this.modelProfiles[model.name]) {
+                for (const profileName of Object.keys(this.modelProfiles)) {
+                    if (profileName.toLowerCase().includes(model.name.toLowerCase()) && !this.models.models[profileName]) {
+                        if (this.woundTrack && this.woundTrack[model.name]) {
+                            this.woundTrack[profileName] = this.woundTrack[model.name];
+                            delete this.woundTrack[model.name];
+                        }
+
+                        model.name = profileName;
+                    }
+                }
+            }
         }
     }
 }
@@ -955,18 +1221,23 @@ function parseRos(data) {
         let armyUnitData = force.selections[0].selection.filter(selection => {
             if (selection.$.type === "model" || selection.$.type === "unit") return true;
             if (selection.$.type === "upgrade") {
-                if (!selection.profiles) return false;
+                if (!selection.selections || selection.selections[0] === "") return false;
+
+                // if the selections contain models, then it shoooould be a unit
+                for (const subSelection of selection.selections[0].selection) {
+                    if (subSelection.$.type === "model")
+                        return true;
+                    else if (subSelection.profiles && subSelection.profiles[0] !== "")
+                        for (const profile of subSelection.profiles[0].profile)
+                            if (profile.$.typeName.toLowerCase() === "unit")
+                                return true;
+                }
+
+                if (!selection.profiles || selection.profiles[0] === "") return false;
 
                 // if the profiles contain characteristic profiles for models, then it shoooould be a unit
                 for (const profile of selection.profiles[0].profile)
                     if (profile.$.typeName.toLowerCase() === "unit")
-                        return true;
-
-                if (!selection.selections) return false;
-
-                // if the selections contain models, then it shoooould be a unit
-                for (const subSelection of selection.selections[0].selection)
-                    if (subSelection.$.type === "model")
                         return true;
             }
 
@@ -987,18 +1258,191 @@ function parseRos(data) {
     for (const uuid of units.keys())
         order.push(uuid);
     
-    return { armyData: units, order: order }
+    return { units, order }
 }
 
 
 
 
 
+
+/********* UNIT DATA TO XML *********/
+
+function formatAndStoreXML(id, order, armyData, uiHeight, uiWidth, decorativeNames, baseScript) {
+    
+    storeFormattedXML(id, undefined, undefined, armyData, uiHeight, uiWidth, decorativeNames, baseScript, order);
+    return;
+
+
+    const xml = xmlBuilder.create().ele("ROOT");
+    let totalHeight = 0;
+    // TODO: return total height for scrollContainer, and xml to add to it
+    
+    for (const unitID of order) {
+        const unit = armyData[unitID],
+            unitData = getUnitXMLData(unit);
+
+        totalHeight += unitData.height;
+
+        xml.ele("VerticalLayout", { class: "transparent", childForceExpandHeight: "false" })
+            .ele("Text", { class: "unitName" }).txt(unit.name).up()
+            .ele("VerticalLayout", { class: "unitContainer", childForceExpandHeight: "false", preferredHeight: unitData.height, spacing: "20" })
+                .import(unitData.fragment)
+
+        /*  <VerticalLayout class="transparent" childForceExpandHeight="false">
+                <Text class="unitName">${unitName}</Text>
+                <VerticalLayout class="unitContainer" childForceExpandHeight="false" preferredHeight="${height}" spacing="20">
+                    ${unitData}
+                </VerticalLayout>
+            </VerticalLayout> */
+    }
+
+    storeFormattedXML(id, xml.end({ prettyPrint: false }).slice(27, -7), totalHeight, armyData, uiHeight, uiWidth, baseScript);
+}
+
+function getUnitXMLData(unit) {
+    const fragment = xmlBuilder.fragment().ele("HorizontalLayout", { class: "groupingGontainer" });
+    let maxHeight = 0;
+
+    for (const [modelID, model] of Object.entries(unit.models.models)) {
+        const modelData = getModelXMLData(model, modelID, unit);
+
+        fragment.import(modelData.fragment); //
+        maxHeight = Math.max(maxHeight, modelData.height);
+    }
+
+    return { fragment, height: maxHeight };
+
+    /*  <HorizontalLayout class="groupingContainer">
+            <VerticalLayout preferredWidth="500" childForceExpandHeight="false" class="modelContainer" id="${unitID}|${modelID}" preferredHeight="${height}">
+                <Text class="modelDataName">${numberString}${modelName}</Text>
+                ${weapons}
+                ${abilities}
+            </VerticalLayout> 
+            .
+            .
+            .
+        </HorizontalLayout>*/
+}
+
+function getModelXMLData(model, modelID, unit) {
+    const fragment = xmlBuilder.fragment(),
+        container = fragment.ele("VerticalLayout", { 
+            preferredWidth: "500", 
+            childForceExpandHeight: "false", 
+            class: "modelContainer", 
+            id: `${unit.uuid}|${modelID}`
+        });
+    let height = 40; // name
+        
+    combineAndSortWeapons(model, unit.weapons);
+
+    container.ele("Text", { class: "modelDataName" }).txt((model.number > 1 ? `${model.number}x `: "") + model.name);
+
+    if (model.weapons.length + (model.assignedWeapons ? model.assignedWeapons.length : 0) > 0) {
+        const weaponSectionData = getModelSectionData("Weapons", model.weapons); // at this point, assigned weapons will already be in the list
+
+        container.import(weaponSectionData.fragment);
+        height += weaponSectionData.height;
+    }
+
+    if (model.abilities.length) {
+        const abilitySectionData = getModelSectionData("Abilities", model.abilities);
+
+        container.import(abilitySectionData.fragment);
+        height += abilitySectionData.height;
+    }
+
+    container.att("preferredHeight", height);
+
+    return { fragment, height };
+    /*  <VerticalLayout preferredWidth="500" childForceExpandHeight="false" class="modelContainer" id="${unitID}|${modelID}" preferredHeight="${height}">
+            <Text class="modelDataName">${numberString}${modelName}</Text>
+            <VerticalLayout childForceExpandHeight="false" childForceExpandWidth="false">
+                <Text height="15"><!-- spacer --></Text>
+                <Text class="modelDataTitle">${weapons?}</Text>
+                <Text class="modelData" preferredHeight="${height}">${data}</Text>
+            </VerticalLayout>
+            <VerticalLayout childForceExpandHeight="false" childForceExpandWidth="false">
+                <Text height="15"><!-- spacer --></Text>
+                <Text class="modelDataTitle">${abilities?}</Text>
+                <Text class="modelData" preferredHeight="${height}">${data}</Text>
+            </VerticalLayout>
+        </VerticalLayout> */
+}
+
+function getModelSectionData (name, dataList) {
+    const fragment = xmlBuilder.fragment();
+    let height = (dataList.length * 40) + 60; // 37 for each line, 60 for title and spacer
+
+    fragment.ele("VerticalLayout", { childForceExpandHeight: "false", childForceExpandWidth: "false" })
+            .ele("Text", { height: "15" }).com("spacer").up()
+            .ele("Text", { class: "modelDataTitle" }).txt(name).up()
+            .ele("Text", { class: "modelData", preferredHeight: (height - 60)+"" })
+                .txt(dataList.map(data => (data.number && data.number > 1 ? `${data.number}x ` : "") + (data.name || data)).join("\n"));
+
+    return { fragment, height };
+
+    /*  <VerticalLayout childForceExpandHeight="false" childForceExpandWidth="false">
+            <Text height="15"><!-- spacer --></Text>
+            <Text class="modelDataTitle">${title}</Text>
+            <Text class="modelData" preferredHeight="${height}">${data}</Text>
+        </VerticalLayout>
+    */
+}
+
+function combineAndSortWeapons(model, characteristicProfiles) {
+    if (model.assignedWeapons && model.assignedWeapons.length) 
+        model.weapons = model.weapons.concat(model.assignedWeapons);
+
+    model.weapons.sort((weaponA, weaponB) => {
+        if (characteristicProfiles[weaponA.name].type === characteristicProfiles[weaponB.name].type) return 0;
+
+        const typeA = characteristicProfiles[weaponA.name].type.match(weaponTypeRegex).groups.type.toLowerCase(),
+            typeB = characteristicProfiles[weaponB.name].type.match(weaponTypeRegex).groups.type.toLowerCase(),
+            typeAVal = WEAPON_TYPE_VALUES[typeA] ? WEAPON_TYPE_VALUES[typeA] : 0,
+            typeBVal = WEAPON_TYPE_VALUES[typeB] ? WEAPON_TYPE_VALUES[typeB] : 0;
+        
+        if (typeAVal === typeBVal) return weaponA.name.localeCompare(weaponB.name);
+
+        return typeAVal - typeBVal;
+    });
+}
+
+function storeFormattedXML(id, xml, height, armyData, uiHeight, uiWidth, decorativeNames, baseScript, order) {
+    fs.writeFileSync(`${PATH_PREFIX}${id}.json`, JSON.stringify({ 
+        xml, 
+        order, 
+        height, 
+        armyData: JSON.parse(sanitize(JSON.stringify(armyData))), // yes, I know this looks awful
+        uiHeight, 
+        uiWidth,  
+        decorativeNames,
+        baseScript 
+    }));
+}
+
+
+
+
+
+
+/**
+ * Replaces any troublesome characters with "sanitized" versions so as to not break scripting
+ * @param {string} str The string to be sanitized
+ * @returns {string} The sanitized string
+ */
+function sanitize(str) {
+    return str.replace(SANITIZATION_REGEX, match => SANITIZATION_MAPPING[match]);
+}
+
+
+
 function replacer(key, value) {
-    if(value instanceof Map) 
+    if (value instanceof Map) 
         return Object.fromEntries(value.entries());
     
-    else if(value instanceof Set) 
+    else if (value instanceof Set) 
         return Array.from(value);
 
     else 

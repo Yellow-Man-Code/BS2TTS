@@ -543,7 +543,6 @@ ol ul {
 .codeLabel {    
     font-size: 48px;
     font-weight: bold;
-    margin: 30% auto;
     width: 500px;
     display: flex;
     justify-content: space-between;
@@ -576,6 +575,25 @@ ol ul {
 }
 
 
+.rosterCode {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+.rosterCode > div {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+
+
+#rosterDisplayPage {
+    height: 100%;
+}
 
 
 

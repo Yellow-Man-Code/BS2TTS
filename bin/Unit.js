@@ -1,5 +1,6 @@
 const ModelCollection = require("./ModelCollection"),
     crypto = require('crypto'),
+    Util = require("./Util"),
 
     factionKeywordRegex = /Faction: (?<keyword>.+)/,
     abilityTrimRegex = /(?:\d+(?:\.|:)|\d+\-\d+(?:\.|:))?\s*(?<ability>.+)/,
@@ -7,7 +8,7 @@ const ModelCollection = require("./ModelCollection"),
     woundTrackProfileNameRegex = /(?<name>^[^[\()]+?)\s*(?:(?:\[\d\]|\(\w\)| \w )\s*(?:\(\d+\-\d+\+?|\(\d+\+)|\s*\(\d+\-\d+\+?|\(\d+\+)/,
     statDamageCheckRegex = /^stat damage /i,
     bracketValueRegex = /(?<min>\d+)\-(?<max>\d+)/,
-    weaponToIgnoreRegex = /of the profiles below|select one of the following profiles/i,
+    weaponToIgnoreRegex = /of the profiles below|select one of the following profiles|select one of the profiles/i,
     woundTrackTypeNameRegex = /^wound track|wound track$/i,
     psykerNameRegex = /^Psyker \((?<name>.+?)\)/,
     smiteTestRegex = /^smite\b/i,
@@ -48,9 +49,9 @@ module.exports = class Unit {
 
             for (const char of profileData.characteristics[0].characteristic)
                 if (char.$.name.toLowerCase() === "save")
-                    data.sv = char._.trim()
+                    data.sv = char._ ? char._.trim() : "-";
                 else
-                    data[char.$.name.toLowerCase()] = char._.trim()
+                    data[char.$.name.toLowerCase()] = char._ ? char._.trim() : "-";
 
             this.modelProfiles[profileName] = data;
         }
@@ -66,8 +67,7 @@ module.exports = class Unit {
 
         if (!this.abilities[trimmedName])
             this.abilities[trimmedName] = { 
-                name: trimmedName.replace(/[\[\]"]/g, m => dangerousReplace[m])
-                , 
+                name: trimmedName.replace(/[\[\]"]/g, m => dangerousReplace[m]), 
                 desc: profileData.characteristics[0].characteristic[0]._.replace(/[\[\]"]/g, m => dangerousReplace[m])
             };
     }
@@ -178,12 +178,20 @@ module.exports = class Unit {
         //let selectionType = "";
         switch (selectionData.$.type.toLowerCase()) {
             case "model":
+                // special case for Hellions because theyre formatted like the escpae below, but actually have a unit definition as well
+                if (selectionData.profiles &&
+                    selectionData.profiles[0] !== "" &&
+                    selectionData.profiles[0].profile[0].$.name === selectionData.$.name) {
+                        this.addModelSimpleData(selectionData.$.name, selectionData.selections, selectionData.$.number);
+                        break;
+                }
+                
                 // sometimes the data creators mark a unit as a "model" for whatever reason,
                 // then later on describe the actual models in the unit (marking those as "unit" ugh)
                 if (selectionData.selections && 
                     selectionData.selections[0] !== "" && 
                     selectionData.selections[0].selection.findIndex(selection => selection.$.type.toLowerCase() === "unit") >= 0)
-                    break;
+                        break;
 
                 this.addModelSimpleData(selectionData.$.name, selectionData.selections, selectionData.$.number);
                 break;
@@ -229,17 +237,21 @@ module.exports = class Unit {
 
                     if (found) break;
                 }
+                
                 // Sometimes the data creators mark models as "upgrade"s without even providing 
                 // a clue that theyre supposed to be models. This tries to catch that at least in a special
                 // case (Space Marine Bike Squad). Basically, if the model profile's name can be found in an upgrade's name,
                 // assume that the upgrade is referencing a model. I fear that this will have consequences with other units.
                 // If it does, just make this an actual special case called out by name.
-                if (Object.keys(this.modelProfiles).findIndex(name => selectionData.$.name.includes(name)) >= 0) {
-                    this.addModelSimpleData(selectionData.$.name, selectionData.selections, selectionData.$.number);
+                if (Object.keys(this.modelProfiles).findIndex(name => 
+                        selectionData.$.name.includes(name) && // if this selection's name includes a profile's name
+                        !this.models.has(name) // but only if there isn't actually a model with that name
+                    ) >= 0 &&
+                    parentSelectionData.$.type.toLowerCase() === "unit") { // special case for heavy mortar batteries, the model will be added later so we dont need to add it here
+                        this.addModelSimpleData(selectionData.$.name, selectionData.selections, selectionData.$.number);
                     
-                    // by this point, since there were no models defined in the unit's selections,
-                    // the "unit" will have already been added as a model, so we need to remove it if it exists
-                    if (parentSelectionData.$.type.toLowerCase() === "unit")
+                        // by this point, since there were no models defined in the unit's selections,
+                        // the "unit" will have already been added as a model, so we need to remove it if it exists
                         this.models.remove(parentSelectionData.$.name);
                 }
                 break;
@@ -320,15 +332,21 @@ module.exports = class Unit {
                             this.addBracket(profile, parentSelectionData ? parentSelectionData.$.name : this.name);//this.name);
 
                         // sometimes the data creators like to put extra stuff before or after "Wound Track"
-                        if (profile.$.typeName.match(woundTrackTypeNameRegex))
+                        else if (profile.$.typeName.match(woundTrackTypeNameRegex))
                             this.addBracket(profile, selectionData.$.name)
 
                         // very rarely, a data creator will put an unexpected typeName for a model profile
-                        if (profile.$.name.match(woundTrackWoundsRemainingRegex))
+                        else if (profile.$.name.match(woundTrackWoundsRemainingRegex))
                             this.addModelProfileData(profile)
 
                         // data creator got fancy with different types of data
-
+                        // credit to @Caleth#9668 for this
+                        if (profile.characteristics && profile.characteristics[0] !== "") {
+                            const description = profile.characteristics[0].characteristic.find(char => char.$.name.toLowerCase() == "description");
+                            
+                            if (description)
+                                this.addFormattedAbility(profile.$.name, description._);
+                        }
                 }
             }
         }
@@ -355,7 +373,7 @@ module.exports = class Unit {
     }
 
     update () {
-        //log(this)
+        //Util.log(this)
         this.addAbilitiesToAllModels();
         this.checkWeapons();
         this.checkForStrangeWoundTrackFormatting();
@@ -364,7 +382,7 @@ module.exports = class Unit {
         this.makeSureWoundTrackNameExists();
         this.checkIfIsSingleModel();
         this.checkModelNames();
-        //log(this);
+        //Util.log(this);
         
         return this;
     }
@@ -385,6 +403,7 @@ module.exports = class Unit {
     /**
      * Checks the weapons the unit has against the weapons that the models in the unit have.
      * Any weapons that are found on the unit but not on any models are added to unassignedWeapons.
+     * Any weapons that are found on models but not on the unit (ie has no profile) are removed
      * If no model has any weapons, all unassigned weapons are added to every model. (and are no longer considered unassigned)
      * NOTE: this behavior may need to change depending on how some units are formatted.
      */
@@ -403,8 +422,25 @@ module.exports = class Unit {
             for (const model of this.models)
                 model.setWeapons(unassignedWeapons);
         }
-        else
+
+        else {
+            const weaponsToRemove = [];
+
+            // if the number of wepaons on models isnt the same as the number of weapon definitions, somethings wrong
+            if (assignedWeapons.length !== this.weapons.length) {
+                // find any weapons that exist on model sbut have no profiles
+                for (const weaponName of assignedWeapons)
+                    if (!this.weapons[weaponName])
+                        weaponsToRemove.push(weaponName);
+
+                // if we found any, remove them from all models
+                if (weaponsToRemove.length > 0)
+                    for (const model of this.models)
+                        model.weapons = model.weapons.filter(weapon => !weaponsToRemove.includes(weapon.name))
+            }
+                    
             this.unassignedWeapons = unassignedWeapons;
+        }
     }
 
     /**
@@ -619,7 +655,14 @@ module.exports = class Unit {
     checkModelNames () {
         for (const model of this.models) {
             if (!this.modelProfiles[model.name]) {
+                const modelNameRegex = new RegExp(model.name + "$", "i");
+
                 for (const profileName of Object.keys(this.modelProfiles)) {
+                    if (modelNameRegex.test(profileName)) {
+                        model.name = profileName;
+                        break;
+                    }
+
                     if (profileName.toLowerCase().includes(model.name.toLowerCase()) && !this.models.models[profileName]) {
                         if (this.woundTrack && this.woundTrack[model.name]) {
                             this.woundTrack[profileName] = this.woundTrack[model.name];

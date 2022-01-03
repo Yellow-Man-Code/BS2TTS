@@ -40,7 +40,8 @@ const ONE_MINUTE = 60000,
             Please reach out to Yellow Man in the <a href='https://discord.gg/kKT6JKsdek'>BS2TTS discord server</a>.
             Please send your .rosz file along with your bug report, and thank you so much for your patience!
         </p>`
-            .replace(/[\n\r]/g, "\\n")
+            .replace(/[\n\r]/g, "\\n"),
+        rosterNotFound: "Your roster code appears to have expired, please upload it again and get a new code."
     },
     
     MODULES = {
@@ -219,22 +220,21 @@ const file = new statik.Server('./site'),
                 let getURL = new URL(`http://${req.headers.host}${req.url}`);
 
                 if (getURL.pathname === "/get_army_by_id") {
-                    const id = getURL.searchParams.get('id').trim(),
-                        fileData = fs.readFileSync(`${PATH_PREFIX}${id}.json`);
+                    try {
+                        const id = getURL.searchParams.get('id').trim(),
+                            fileData = fs.readFileSync(`${PATH_PREFIX}${id}.json`);
 
-                    if (!fileData) 
-                        sendHTTPResponse(res, `{ "err": "Roster not found!" }`, 404);
-
-                    else
-                        sendHTTPResponse(res, fileData);
-
-                    /* fs.readFile(`${PATH_PREFIX}${id}.json`, (err, data) => {
-                        if (err) 
+                        if (!fileData) 
                             sendHTTPResponse(res, `{ "err": "Roster not found!" }`, 404);
 
                         else
-                            sendHTTPResponse(res, data);
-                    }); */
+                            sendHTTPResponse(res, fileData);
+                    }
+
+                    catch (err) {
+                        sendHTTPResponse(res, `{ "err": "${ERRORS.rosterNotFound}" }`, 404);
+                        console.log(err);
+                    }
                 }
 
                 else

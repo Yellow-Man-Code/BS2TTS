@@ -171,7 +171,7 @@ function onLoad(savedState)
 
         setContextMenuItemsForUnit()
         
-        Wait.frames(function () buildUI() end, 2)
+        --Wait.frames(function () buildUI() end, 2)
 
         for _,model in ipairs(getObjectsWithTag("uuid:"..unitData.uuid)) do
             model.setVar("hasLoaded", true)
@@ -309,28 +309,82 @@ end
 
 
 function showCard(cardName, playerColor, doBeforeShowing, doAfterShowing)
-    UI.setXml(self.UI.getXml())
-    -- delay for updating xml
-    Wait.frames(function()
-        if doBeforeShowing ~= nil then doBeforeShowing() end
+    local timeToWait = 0
+    
+    if not hasBuiltUI then 
+        buildUI()
+        hasBuiltUI = true
+        timeToWait = 2
+    end
+
+    -- wait in case ui needs to update
+    Wait.frames(function ()
+        local globalUI = Global.UI.getXmlTable()
+        local selfUI = self.UI.getXmlTable()
+        local formattedCardName = "ymc-"..cardName.."-"..unitData.uuid.."-"..playerColor
+        local shownYet = false
+
+        -- TODO: I think i can just update the attributes
+        -- TODO: does the return from setAttribute tell me if the element exists or not?
+        -- yes, I know we go through the table twice, I don't like it
+        for _,element in ipairs(globalUI) do
+            recursivelyCleanElement(element)
+
+            if element.attributes.id == formattedCardName then
+                shownYet = true
+                
+                element.attributes.visibility = playerColor
+                element.attributes.active = true
+            end
+        end
+    
+        if not shownYet then
+            local cardToShow = filter(selfUI[1].children, |child| child.attributes.id == cardName)[1]
+            cardToShow.attributes.id = formattedCardName
+            cardToShow.attributes.visibility = playerColor
+            cardToShow.attributes.active = true
         
-        -- wait to show until any changes have been made
-        Wait.frames(function ()
-            --UI.setAttribute("closeButton", "textColor", "White") --for some reason it turns black
-            UI.setAttribute("ym-container", "visibility", playerColor) -- make the container only visible to the player who triggered it
-            UI.show(cardName)
-            if doAfterShowing ~= nil then Wait.frames(doAfterShowing, 2) end
-        end, 2)
-        --Wait.time(function () log(UI.getXml()) end, 1)
-    end, 2)
+            recursivelyCleanElement(cardToShow)
+            table.insert(globalUI, cardToShow)
+    
+            UI.setXmlTable(globalUI)
+        end
+    end, timeToWait)
 end
 
 
 function hideCard(player, card)
-    UI.hide(card)
-    Wait.time(function()
-        UI.setAttribute("container", "visibility", "hidden")
-      end, 0.11)
+    local playerColor = player.color    
+
+    if (player.color:find("^%w+$")) == nil then playerColor = "Grey" end
+
+    local formattedCardName = "ymc-"..card.."-"..unitData.uuid.."-"..playerColor
+
+    UI.setAttributes(formattedCardName, {
+        visibility = "None",
+        active = false
+    })
+
+    local currentUI = UI.getXmlTable()
+
+    for _,element in ipairs(currentUI) do
+        if element.attributes ~= nil and
+            element.attributes.id ~= nil and
+            (element.attributes.id:find("^ymc%-")) ~= nil and -- if we find a card 
+            element.attributes.active = true then
+                return -- we found a card that is still visible, so we dont want to reset the UI
+        end
+
+        recursivelyCleanElement(element)
+    end
+
+    currentUI = filter(currentUI, |element| element.attributes.id == nil or (element.attributes.id:find("^ymc%-")) == nil)
+
+    UI.setXmlTable(currentUI)
+    --[[ Wait.time(function()
+        
+        --UI.setAttribute("container", "visibility", "hidden")
+    end, 0.11) --]]
 end
 
 -- builds the XML string for the given section based on data defined in unitData (see top of file)
@@ -338,18 +392,20 @@ end
 function buildXMLForSection(section)
     local uiString = ""     -- old: uiTemplates[section.."Header"]
     local _,_,rowHeight = uiTemplates[section].find(uiTemplates[section], 'Row.-preferredHeight="(%d+)"') -- get the height of the row to be added
-    local rowParity = "ym-oddRow"
+    local rowParity = "White"
     for _,entry in pairs(unitData[section]) do
         entry["rowParity"] = rowParity
         uiString = uiString..interpolate(uiTemplates[section], entry)
         dataCardHeight = dataCardHeight + tonumber(rowHeight)
-        rowParity = rowParity == "ym-oddRow" and "ym-evenRow" or "ym-oddRow"
+        rowParity = rowParity == "White" and "#f9f9f9" or "White"
     end
     self.UI.setValue(section, uiString)
 end
 
 
 function buildUI()
+    self.UI.setAttribute("ym-container", "unit-id", unitData.uuid)
+
     self.UI.setAttribute("dataCard", "height", unitData.uiHeight)
     self.UI.setAttribute("dataCard", "width", unitData.uiWidth)
 
@@ -700,6 +756,43 @@ function filter(t, filterFunc)
     end
   
     return out
+end
+
+function clone(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == 'table' then
+        copy = {}
+        for orig_key, orig_value in next, orig, nil do
+            copy[clone(orig_key)] = clone(orig_value)
+        end
+        setmetatable(copy, clone(getmetatable(orig)))
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
+
+function map(t, mapFunc)
+    local out = {}
+
+    for k,v in pairs(clone(t)) do
+        table.insert(out, mapFunc(v,k))
+    end
+
+    return out
+end
+
+function recursivelyCleanElement(element)
+    if element.value ~= nil then
+        element.value = element.value:gsub("[ ]+"," ") -- remove extraneous spaces
+    end
+
+    if element.children ~= nil and #element.children > 0 then
+        for _,child in ipairs(element.children) do
+            recursivelyCleanElement(child)
+        end
+    end
 end
 
 

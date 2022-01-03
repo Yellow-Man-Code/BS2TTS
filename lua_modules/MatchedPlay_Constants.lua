@@ -1,5 +1,6 @@
 local measuringCircles = {}
 local isCurrentlyCheckingCoherency = false
+local hasBuiltUI = false
 local previousHighlightColor = nil
 local MM_TO_INCH = 0.0393701
 local MEASURING_RING_Y_OFFSET = 0.17
@@ -66,60 +67,60 @@ local dataCardHeight = 300
 -- 40px by default (will add row heights later), spacing adds 30 between each,
 -- and I want 10 extra pixels at the bottom for a total of 60+30+40+30+40+30+40+10 = 260 (+10 for unknown reason) (70 for keywords)
 local uiTemplates = {
-    abilities = [[<Row class="${rowParity}" preferredHeight="80">
-                    <Cell><Text class="ym-resizingSmallBold">${name}</Text></Cell>
-                    <Cell><Text class="ym-resizingText">${desc}</Text></Cell>
+    abilities = [[<Row color="${rowParity}" dontUseTableRowBackground="true" preferredHeight="80">
+                    <Cell><Text resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" preferredHeight="20" fontStyle="Bold" alignment="MiddleCenter">${name}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" alignment="MiddleCenter">${desc}</Text></Cell>
                 </Row>]],
-    models = [[ <Row class="${rowParity}" preferredHeight="60">
-                    <Cell><Text class="ym-resizingSmallBold">${name}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${m}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${ws}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${bs}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${s}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${t}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${w}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${a}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${ld}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${sv}</Text></Cell>
+    models = [[ <Row color="${rowParity}" dontUseTableRowBackground="true" preferredHeight="60">
+                    <Cell><Text resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" preferredHeight="20" fontStyle="Bold" alignment="MiddleCenter">${name}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${m}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${ws}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${bs}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${s}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${t}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${w}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${a}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${ld}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${sv}</Text></Cell>
                 </Row>]],
-    weapons = [[ <Row class="${rowParity}" preferredHeight="60">
-                    <Cell><Text class="ym-resizingSmallBold">${name}</Text></Cell>
-                    <Cell><Text class="ym-resizingText">${range}</Text></Cell>
-                    <Cell><Text class="ym-resizingText">${type}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${s}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${ap}</Text></Cell>
-                    <Cell><Text class="ym-smallText">${d}</Text></Cell>
-                    <Cell><Text class="ym-resizingText">${abilities}</Text></Cell>
+    weapons = [[ <Row color="${rowParity}" dontUseTableRowBackground="true" preferredHeight="60">
+                    <Cell><Text resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" preferredHeight="20" fontStyle="Bold" alignment="MiddleCenter">${name}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" alignment="MiddleCenter">${range}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" alignment="MiddleCenter">${type}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${s}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${ap}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${d}</Text></Cell>
+                    <Cell><Text fontStyle="Normal" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" alignment="MiddleCenter">${abilities}</Text></Cell>
                 </Row>]],
-    powersKnown = [[<Row class="${rowParity}" preferredHeight="100">
-                        <Cell><Text class="ym-resizingSmallBold">${name}</Text></Cell>
-                        <Cell><Text class="ym-smallText">${warpCharge}</Text></Cell>
-                        <Cell><Text class="ym-smallText">${range}</Text></Cell>
-                        <Cell><Text class="ym-resizingText">${details}</Text></Cell>
+    powersKnown = [[<Row color="${rowParity}" dontUseTableRowBackground="true" preferredHeight="100">
+                        <Cell><Text resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" preferredHeight="20" fontStyle="Bold" alignment="MiddleCenter">${name}</Text></Cell>
+                        <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${warpCharge}</Text></Cell>
+                        <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${range}</Text></Cell>
+                        <Cell><Text fontStyle="Normal" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" alignment="MiddleCenter">${details}</Text></Cell>
                     </Row>]],
-    psykerProfiles = [[ <Row class="${rowParity}" preferredHeight="100">
-                            <Cell><Text class="ym-resizingSmallBold">${name}</Text></Cell>
-                            <Cell><Text class="ym-smallText">${cast}</Text></Cell>
-                            <Cell><Text class="ym-smallText">${deny}</Text></Cell>
-                            <Cell><Text class="ym-resizingText">${known}</Text></Cell>
+    psykerProfiles = [[ <Row color="${rowParity}" dontUseTableRowBackground="true" alignment="MiddleCenter" preferredHeight="100">
+                            <Cell><Text resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" preferredHeight="20" fontStyle="Bold" alignment="MiddleCenter">${name}</Text></Cell>
+                            <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${cast}</Text></Cell>
+                            <Cell><Text fontStyle="Normal" fontSize="18" alignment="MiddleCenter">${deny}</Text></Cell>
+                            <Cell><Text fontStyle="Normal" resizeTextForBestFit="true" resizeTextMinSize="6" resizeTextMaxSize="20" alignment="MiddleCenter">${known}</Text></Cell>
                         </Row>]],
-    agenda = [[ <HorizontalLayout>
-                    <Text class="ym-medText" flexibleWidth="1">${counterName}</Text>
-                    <HorizontalLayout spacing="5">
-                        <Button class="ym-button" onClick="${guid}/decrementTallyCounter(${counterName})">-</Button>
-                        <Text class="ym-bold" id="${counterID}">${counterValue}</Text>
-                        <Button class="ym-button" onClick="${guid}/incrementTallyCounter(${counterName})">+</Button>
+    agenda = [[ <HorizontalLayout childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleLeft">
+                    <Text fontStyle="Normal" fontSize="24" alignment="MiddleCenter" flexibleWidth="1">${counterName}</Text>
+                    <HorizontalLayout childForceExpandWidth="false" childForceExpandHeight="false" childAlignment="MiddleLeft" spacing="5">
+                        <Button transition="None" preferredHeight="24" preferredWidth="24" padding="3 3 3 3" resizeTextForBestFit="true" textAlignment="MiddleCenter" onClick="${guid}/decrementTallyCounter(${counterName})">-</Button>
+                        <Text fontStyle="Bold" fontSize="26" color="#000000" id="${counterID}">${counterValue}</Text>
+                        <Button transition="None" preferredHeight="24" preferredWidth="24" padding="3 3 3 3" resizeTextForBestFit="true" textAlignment="MiddleCenter" onClick="${guid}/incrementTallyCounter(${counterName})">+</Button>
                     </HorizontalLayout>
                 </HorizontalLayout>]],
     -- this is here and not in xml because we have to provide the guid, otherwise it will try and run on Global
-    buttons = [[<Button class="highlightingButton" preferredWidth="${width}" color="#BB2222" onClick="${guid}/highlightUnit(Red)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#22BB22" onClick="${guid}/highlightUnit(Green)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#2222BB" onClick="${guid}/highlightUnit(Blue)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#BB22BB" onClick="${guid}/highlightUnit(Purple)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#DDDD22" onClick="${guid}/highlightUnit(Yellow)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#FFFFFF" onClick="${guid}/highlightUnit(White)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#DD6633" onClick="${guid}/highlightUnit(Orange)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#29D9D9" onClick="${guid}/highlightUnit(Teal)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#DD77CC" onClick="${guid}/highlightUnit(Pink)"></Button>
-    <Button class="highlightingButton" preferredWidth="${width}" color="#BBBBBB" onClick="${guid}/unhighlightUnit"></Button>]]
+    buttons = [[<Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#BB2222" onClick="${guid}/highlightUnit(Red)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#22BB22" onClick="${guid}/highlightUnit(Green)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#2222BB" onClick="${guid}/highlightUnit(Blue)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#BB22BB" onClick="${guid}/highlightUnit(Purple)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#DDDD22" onClick="${guid}/highlightUnit(Yellow)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#FFFFFF" onClick="${guid}/highlightUnit(White)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#DD6633" onClick="${guid}/highlightUnit(Orange)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#29D9D9" onClick="${guid}/highlightUnit(Teal)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#DD77CC" onClick="${guid}/highlightUnit(Pink)"></Button>
+    <Button padding="3 3 3 3" preferredHeight="20" preferredWidth="${width}" color="#BBBBBB" onClick="${guid}/unhighlightUnit"></Button>]]
 }

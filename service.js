@@ -6,7 +6,7 @@ const http = require('http'),
     MODULE_PATH = "lua_modules",
     HOMEPAGE = "bs2tts.html";
 const {roszParse} = require("./bin/roszParser");
-const roszParser = require("./bin/Roster");
+const Roster = require("./bin/Roster");
 
 
 const TEN_MINUTES = 600000,
@@ -54,17 +54,6 @@ const TEN_MINUTES = 600000,
 
     SANITIZATION_REGEX = new RegExp(Object.keys(SANITIZATION_MAPPING).join("|"), "g");
 
-
-
-Array.prototype.union = function(arr) {
-    return Array.from(new Set(this.concat(arr))); // set removes duplicates
-};
-
-Array.prototype.isAllSameValue = function () {
-    return Array.from(new Set(this)).length === 1;
-};
-
-
 const file = new statik.Server('./site'),
     currentFiles = new Set(fs.readdirSync(PATH_PREFIX).map(fileName => fileName.match(FILE_NAME_REGEX).groups.name)),
     server = http.createServer(function (req, res) {
@@ -100,7 +89,7 @@ const file = new statik.Server('./site'),
                             armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
 
                             fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
-                                roszParser.serialize(armyDataObj)
+                                Roster.serialize(armyDataObj)
                                     .replace(" & ", " and "),
                                 (err) => {
                                     let content, status;
@@ -116,7 +105,7 @@ const file = new statik.Server('./site'),
                                     sendHTTPResponse(res, content, status);
                                 });
                         } else
-                            sendHTTPResponse(res, roszParser.serialize(armyDataObj), 200);
+                            sendHTTPResponse(res, Roster.serialize(armyDataObj), 200);
                     }
                     catch (err) {
                         if (err.toString().includes("Invalid or unsupported zip format.")) {

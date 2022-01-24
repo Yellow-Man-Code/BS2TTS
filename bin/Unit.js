@@ -1,6 +1,5 @@
 const ModelCollection = require("./ModelCollection"),
     crypto = require('crypto'),
-    Util = require("./Util"),
 
     factionKeywordRegex = /Faction: (?<keyword>.+)/,
     abilityTrimRegex = /(?:\d+(?:\.|:)|\d+\-\d+(?:\.|:))?\s*(?<ability>.+)/,
@@ -15,7 +14,6 @@ const ModelCollection = require("./ModelCollection"),
 
     keywordsToIgnore = ["HQ", "Troops", "Elites", "Fast Attack", "Heavy Support", "Flyer", "Dedicated Transport", "Lord of War", "No Force Org Slot", "Warlord"];
 const arrayUtils = require("./arrayUtils");
-const {allEqual} = require("./arrayUtils");
 
 module.exports = class Unit {
     name;
@@ -107,8 +105,10 @@ module.exports = class Unit {
             }
 
             if (char.$.name === "Abilities" && char._ && char._.match(weaponToIgnoreRegex)) {
-                if (mightIgnore) return; // I don't want these sorts of profiles showing up
-                else mightIgnore = true;
+                if (mightIgnore)
+                    return; // I don't want these sorts of profiles showing up
+                else
+                    mightIgnore = true;
             }
 
             data[char.$.name.toLowerCase()] = char._;
@@ -177,7 +177,6 @@ module.exports = class Unit {
 
 
     handleSelectionDataRecursive (selectionData, parentSelectionData, isTopLevel = false) {
-        //let selectionType = "";
         switch (selectionData.$.type.toLowerCase()) {
             case "model":
                 // special case for Hellions because theyre formatted like the escpae below, but actually have a unit definition as well
@@ -375,7 +374,6 @@ module.exports = class Unit {
     }
 
     update () {
-        //Util.log(this)
         this.addAbilitiesToAllModels();
         this.checkWeapons();
         this.checkForStrangeWoundTrackFormatting();
@@ -384,7 +382,6 @@ module.exports = class Unit {
         this.makeSureWoundTrackNameExists();
         this.checkIfIsSingleModel();
         this.checkModelNames();
-        //Util.log(this);
 
         return this;
     }
@@ -413,11 +410,6 @@ module.exports = class Unit {
                                     .filter(weaponName => !assignedWeapons.includes(weaponName))
                                     .map(weaponName => { return { name: weaponName, number: 1 }});
 
-        /* for (const model of this.models)
-            if (model.weapons.length === 0) {
-                model.setWeapons(unassignedWeapons);
-                assigned = true;
-            } */
         if (assignedWeapons.length === 0) {
             for (const model of this.models)
                 model.setWeapons(unassignedWeapons);
@@ -426,7 +418,7 @@ module.exports = class Unit {
         else {
             const weaponsToRemove = [];
 
-            // if the number of wepaons on models isnt the same as the number of weapon definitions, somethings wrong
+            // if the number of weapons on models isn't the same as the number of weapon definitions, something wrong
             if (assignedWeapons.length !== this.weapons.length) {
                 // find any weapons that exist on model sbut have no profiles
                 for (const weaponName of assignedWeapons)
@@ -453,9 +445,7 @@ module.exports = class Unit {
         // if there is a profile with the words "wounds remaining",
         // it's safe to assume it's supposed to be a bracket
         if (Object.keys(this.modelProfiles).findIndex(name => !!name.match(woundTrackWoundsRemainingRegex)) >= 0) {
-            let bracketProfiles = {}, //Object.entries(this.modelProfiles)
-                                    //.filter(([name, bracket]) => !!name.match(woundTrackWoundsRemainingRegex))
-                                    //.map(([name, bracket]) => bracket),
+            let bracketProfiles = {},
                 otherProfiles = {},
                 baseProfile,
                 characteristics,

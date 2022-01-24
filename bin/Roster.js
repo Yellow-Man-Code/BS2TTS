@@ -1,5 +1,4 @@
-const Unit = require("./Unit"),
-    Util = require("./Util");
+const Unit = require("./Unit");
 
 /**
  * Parses the given .ros data into the format we want for TTS
@@ -10,12 +9,7 @@ module.exports.parse = (data) => {
     let units = new Map();
 
     for (const force of data[0].force) {
-        let armyUnitData = force.selections[0].selection.filter(selection => {
-            if (selection.$.type === "model" || selection.$.type === "unit") return true;
-            if (selection.$.type === "upgrade" && Util.hasUnitSomewhereRecursive(selection)) return true;
-
-            return false;
-        });
+        let armyUnitData = force.selections[0].selection.filter(hasUnitSomewhereRecursive);
 
         for (let unitData of armyUnitData) {
             let unit = new Unit(unitData.$.name, unitData.$.customName, unitData.$.type === "model");
@@ -32,6 +26,26 @@ module.exports.parse = (data) => {
         order.push(uuid);
 
     return { units, order }
+}
+
+function hasUnitSomewhereRecursive(selection) {
+    if (selection.$.type === "model" || selection.$.type === "unit") return true; // we found it!
+
+    // check the profiles in the selection data, if a unit exists, assume its a unit
+    if (selection.profiles && selection.profiles[0] !== "")
+        for (const profile of selection.profiles[0].profile)
+            if (profile.$.typeName.toLowerCase() === "unit")
+                return true;
+
+    if (!selection.selections || selection.selections[0] === "") return false; // if there arent any children, return false
+    // (we would have returned true already if this current selection was a unit or model)
+
+    // else search the children
+    for (const childSelection of selection.selections[0].selection)
+        if (hasUnitSomewhereRecursive(childSelection)) // recurse
+            return true;
+
+    return false; // we didn't find it
 }
 
 function replacer(key, value) {

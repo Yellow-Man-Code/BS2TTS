@@ -19,10 +19,6 @@ module.exports = class Model {
         this.abilities.push(profileData.$.name.match(abilityTrimRegex).groups.ability);
     }
 
-    addRule (ruleName) {
-        this.rules.push(ruleName);
-    }
-
     addWeaponData (weaponData, selection) {
         let newMatch = weaponData.$.name.match(weaponNameWithoutNumberRegex).groups,
             selectionNumber = selection.$.name.match(weaponNameWithoutNumberRegex).groups.number,
@@ -68,10 +64,6 @@ module.exports = class Model {
         }
     }
 
-    setWeapons(weaponArray) {
-        this.weapons = weaponArray;
-    }
-
     add(model) {
         this.number += model.number;
         this.abilities = arrayUtils.union(this.abilities, model.abilities);
@@ -81,7 +73,7 @@ module.exports = class Model {
                 this.weapons.push(weapon);
     }
 
-    isEqualTo(otherModel, strict) {
+    isEqualTo(otherModel) {
         if (this.name !== otherModel.name) return false;
 
         if (this.abilities.length !== otherModel.abilities.length) return false;
@@ -96,9 +88,6 @@ module.exports = class Model {
                 if (otherModel.weapons.findIndex(otherWeapon =>
                                     weapon.name === otherWeapon.name && weapon.number === otherWeapon.number) < 0)
                     return false;
-
-        if (strict && this.number !== otherModel.number)
-            return false;
 
         return true;
     }

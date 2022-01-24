@@ -1,17 +1,12 @@
+require("util");
 const port = process.env.PORT || 3000,
     http = require('http'),
-    //https = require('https'),
     fs = require('fs'),
     crypto = require('crypto'),
     AdmZip = require('adm-zip'),
     parseXML = require('xml2js').parseString,
-    //html = fs.readFileSync('bs2tts.html'),
-    util = require("util"),
-    //url = require("url"),
     path = require('path'),
     statik = require("node-static"),
-    //xmlBuilder = require("xmlbuilder2"),
-    //FAVICON_PATH = path.join(__dirname, 'favicon.ico'),
     MODULE_PATH = "lua_modules",
     HOMEPAGE = "bs2tts.html",
     Roster = require("./bin/Roster");
@@ -21,7 +16,6 @@ const ONE_MINUTE = 60000,
     TEN_MINUTES = 600000,
     PATH_PREFIX = "files/",
     FILE_NAME_REGEX = /(?<name>.+?)(?=.json)/,
-    weaponTypeRegex = /(?<type>.+?)(?:[0-9dD\/ ]+)?$/,
 
     ERRORS = {
         invalidFormat: `<h2 class='error'>I can only accept .rosz files.</h2>
@@ -56,17 +50,6 @@ const ONE_MINUTE = 60000,
             ScriptKeys: null
         }
     },
-
-    WEAPON_TYPE_VALUES = {
-        "rapid fire": 0,
-        assault: 0,
-        heavy: 0,
-        macro: 0,
-        pistol: 1,
-        grenade: 2,
-        melee: 3
-    },
-
     SANITIZATION_MAPPING = {
         " & ": " and ",
         ">": "＞",
@@ -109,7 +92,7 @@ const file = new statik.Server('./site'),
                 for (let i = 0, len = data.length, pos = 0; i < len; i++) {
                     data[i].copy(buf, pos);
                     pos += data[i].length;
-                } ;
+                }
 
                 if (postURL.pathname === "/format_and_store_army" || postURL.pathname === "/getFormattedArmy") {
                     try {
@@ -119,7 +102,7 @@ const file = new statik.Server('./site'),
                         for (let i = 0; i < zipEntries.length; i++)
                             parseXML(zip.readAsText(zipEntries[i]), (_err, result) => {
                                 fs.writeFile("output.json", JSON.stringify(result.roster.forces, null, 4), () =>{})
-                                //parseRos(result.roster.forces);
+
                                 let armyDataObj = Roster.parse(result.roster.forces);
 
                                 if (postURL.pathname === "/format_and_store_army") {
@@ -174,33 +157,6 @@ const file = new statik.Server('./site'),
                                             postURL.searchParams.get('uiWidth'),
                                             postURL.searchParams.get('decorativeNames'),
                                             buildScript(postURL.searchParams.get("modules").split(",")));
-
-                        /* if (postURL.pathname === "/format_and_store_army") {
-                            armyDataObj.uiHeight = postURL.searchParams.get('uiHeight');
-                            armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
-                            armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","))
-
-                            fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
-                                        JSON.stringify(armyDataObj, replacer)
-                                            .replace(" & ", " and "),
-                                        (err) => {
-                                            let content,status;
-
-                                            if (!err) {
-                                                content = `{ "id": "${uuid}" }`;
-                                                status = 200;
-                                            }
-                                            else {
-                                                content = `{ "err": "${ERRORS.fileWrite}" }`;
-                                                status = 500
-                                            }
-
-                                            sendHTTPResponse(res, content, status);
-                                        });
-                        }
-
-                        else
-                            sendHTTPResponse(res, JSON.stringify(armyDataObj, replacer).replace(" & ", " and "), 200); */
                     }
                     catch (err) {
                         sendHTTPResponse(res, `{ "err": "${ERRORS.unknown}" }`, 500);
@@ -277,13 +233,10 @@ setInterval(() => {
         for (const filePath of files) {
             if ((Date.now() - TEN_MINUTES) > fs.statSync(PATH_PREFIX + filePath).mtime) {
 
-                fs.unlink(path.join(PATH_PREFIX, filePath), err => {});
+                fs.unlink(path.join(PATH_PREFIX, filePath), () => {});
             }
         }
     });
-
-    //let stats = fs.statSync("/dir/file.txt");
-    //let mtime = stats.mtime;
 }, ONE_MINUTE);
 
 
@@ -348,144 +301,7 @@ function buildScript(modules) {
 /********* UNIT DATA TO XML *********/
 
 function formatAndStoreXML(id, order, armyData, uiHeight, uiWidth, decorativeNames, baseScript) {
-
     storeFormattedXML(id, undefined, undefined, armyData, uiHeight, uiWidth, decorativeNames, baseScript, order);
-    return;
-
-
-    const xml = xmlBuilder.create().ele("ROOT");
-    let totalHeight = 0;
-    // TODO: return total height for scrollContainer, and xml to add to it
-
-    for (const unitID of order) {
-        const unit = armyData[unitID],
-            unitData = getUnitXMLData(unit);
-
-        totalHeight += unitData.height;
-
-        xml.ele("VerticalLayout", { class: "transparent", childForceExpandHeight: "false" })
-            .ele("Text", { class: "unitName" }).txt(unit.name).up()
-            .ele("VerticalLayout", { class: "unitContainer", childForceExpandHeight: "false", preferredHeight: unitData.height, spacing: "20" })
-                .import(unitData.fragment)
-
-        /*  <VerticalLayout class="transparent" childForceExpandHeight="false">
-                <Text class="unitName">${unitName}</Text>
-                <VerticalLayout class="unitContainer" childForceExpandHeight="false" preferredHeight="${height}" spacing="20">
-                    ${unitData}
-                </VerticalLayout>
-            </VerticalLayout> */
-    }
-
-    storeFormattedXML(id, xml.end({ prettyPrint: false }).slice(27, -7), totalHeight, armyData, uiHeight, uiWidth, baseScript);
-}
-
-function getUnitXMLData(unit) {
-    const fragment = xmlBuilder.fragment().ele("HorizontalLayout", { class: "groupingGontainer" });
-    let maxHeight = 0;
-
-    for (const [modelID, model] of Object.entries(unit.models.models)) {
-        const modelData = getModelXMLData(model, modelID, unit);
-
-        fragment.import(modelData.fragment); //
-        maxHeight = Math.max(maxHeight, modelData.height);
-    }
-
-    return { fragment, height: maxHeight };
-
-    /*  <HorizontalLayout class="groupingContainer">
-            <VerticalLayout preferredWidth="500" childForceExpandHeight="false" class="modelContainer" id="${unitID}|${modelID}" preferredHeight="${height}">
-                <Text class="modelDataName">${numberString}${modelName}</Text>
-                ${weapons}
-                ${abilities}
-            </VerticalLayout>
-            .
-            .
-            .
-        </HorizontalLayout>*/
-}
-
-function getModelXMLData(model, modelID, unit) {
-    const fragment = xmlBuilder.fragment(),
-        container = fragment.ele("VerticalLayout", {
-            preferredWidth: "500",
-            childForceExpandHeight: "false",
-            class: "modelContainer",
-            id: `${unit.uuid}|${modelID}`
-        });
-    let height = 40; // name
-
-    combineAndSortWeapons(model, unit.weapons);
-
-    container.ele("Text", { class: "modelDataName" }).txt((model.number > 1 ? `${model.number}x `: "") + model.name);
-
-    if (model.weapons.length + (model.assignedWeapons ? model.assignedWeapons.length : 0) > 0) {
-        const weaponSectionData = getModelSectionData("Weapons", model.weapons); // at this point, assigned weapons will already be in the list
-
-        container.import(weaponSectionData.fragment);
-        height += weaponSectionData.height;
-    }
-
-    if (model.abilities.length) {
-        const abilitySectionData = getModelSectionData("Abilities", model.abilities);
-
-        container.import(abilitySectionData.fragment);
-        height += abilitySectionData.height;
-    }
-
-    container.att("preferredHeight", height);
-
-    return { fragment, height };
-    /*  <VerticalLayout preferredWidth="500" childForceExpandHeight="false" class="modelContainer" id="${unitID}|${modelID}" preferredHeight="${height}">
-            <Text class="modelDataName">${numberString}${modelName}</Text>
-            <VerticalLayout childForceExpandHeight="false" childForceExpandWidth="false">
-                <Text height="15"><!-- spacer --></Text>
-                <Text class="modelDataTitle">${weapons?}</Text>
-                <Text class="modelData" preferredHeight="${height}">${data}</Text>
-            </VerticalLayout>
-            <VerticalLayout childForceExpandHeight="false" childForceExpandWidth="false">
-                <Text height="15"><!-- spacer --></Text>
-                <Text class="modelDataTitle">${abilities?}</Text>
-                <Text class="modelData" preferredHeight="${height}">${data}</Text>
-            </VerticalLayout>
-        </VerticalLayout> */
-}
-
-function getModelSectionData (name, dataList) {
-    const fragment = xmlBuilder.fragment();
-    let height = (dataList.length * 40) + 60; // 37 for each line, 60 for title and spacer
-
-    fragment.ele("VerticalLayout", { childForceExpandHeight: "false", childForceExpandWidth: "false" })
-            .ele("Text", { height: "15" }).com("spacer").up()
-            .ele("Text", { class: "modelDataTitle" }).txt(name).up()
-            .ele("Text", { class: "modelData", preferredHeight: (height - 60)+"" })
-                .txt(dataList.map(data => (data.number && data.number > 1 ? `${data.number}x ` : "") + (data.name || data)).join("\n"));
-
-    return { fragment, height };
-
-    /*  <VerticalLayout childForceExpandHeight="false" childForceExpandWidth="false">
-            <Text height="15"><!-- spacer --></Text>
-            <Text class="modelDataTitle">${title}</Text>
-            <Text class="modelData" preferredHeight="${height}">${data}</Text>
-        </VerticalLayout>
-    */
-}
-
-function combineAndSortWeapons(model, characteristicProfiles) {
-    if (model.assignedWeapons && model.assignedWeapons.length)
-        model.weapons = model.weapons.concat(model.assignedWeapons);
-
-    model.weapons.sort((weaponA, weaponB) => {
-        if (characteristicProfiles[weaponA.name].type === characteristicProfiles[weaponB.name].type) return 0;
-
-        const typeA = characteristicProfiles[weaponA.name].type.match(weaponTypeRegex).groups.type.toLowerCase(),
-            typeB = characteristicProfiles[weaponB.name].type.match(weaponTypeRegex).groups.type.toLowerCase(),
-            typeAVal = WEAPON_TYPE_VALUES[typeA] ? WEAPON_TYPE_VALUES[typeA] : 0,
-            typeBVal = WEAPON_TYPE_VALUES[typeB] ? WEAPON_TYPE_VALUES[typeB] : 0;
-
-        if (typeAVal === typeBVal) return weaponA.name.localeCompare(weaponB.name);
-
-        return typeAVal - typeBVal;
-    });
 }
 
 function storeFormattedXML(id, xml, height, armyData, uiHeight, uiWidth, decorativeNames, baseScript, order) {
@@ -526,11 +342,6 @@ function replacer(key, value) {
 
     else
         return value;
-}
-
-
-function log (data) {
-    console.log(util.inspect(data, false, null, true));
 }
 
 module.exports.server = server

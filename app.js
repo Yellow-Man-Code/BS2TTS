@@ -531,4 +531,6 @@ function replacer(key, value) {
 
 function log (data) {
     console.log(util.inspect(data, false, null, true));
-}
+}
+
+module.exports.server = server

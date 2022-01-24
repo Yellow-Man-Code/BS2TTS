@@ -43,7 +43,7 @@ const ONE_MINUTE = 60000,
             .replace(/[\n\r]/g, "\\n"),
         rosterNotFound: "Your roster code appears to have expired, please upload it again and get a new code."
     },
-    
+
     MODULES = {
         MatchedPlay: {
             Constants: null,
@@ -56,7 +56,7 @@ const ONE_MINUTE = 60000,
             ScriptKeys: null
         }
     },
-    
+
     WEAPON_TYPE_VALUES = {
         "rapid fire": 0,
         assault: 0,
@@ -66,13 +66,13 @@ const ONE_MINUTE = 60000,
         grenade: 2,
         melee: 3
     },
-    
+
     SANITIZATION_MAPPING = {
         " & ": " and ",
         ">": "＞",
         "<": "＜"
     },
-    
+
     SANITIZATION_REGEX = new RegExp(Object.keys(SANITIZATION_MAPPING).join("|"), "g");
 
 
@@ -101,21 +101,21 @@ const file = new statik.Server('./site'),
                     buf = Buffer.alloc(dataLength),
                     uuid;
 
-                do uuid = crypto.randomBytes(4).toString("hex"); 
+                do uuid = crypto.randomBytes(4).toString("hex");
                 while (currentFiles.has(uuid));
 
                 currentFiles.add(uuid);
 
-                for (let i = 0, len = data.length, pos = 0; i < len; i++) { 
-                    data[i].copy(buf, pos); 
-                    pos += data[i].length; 
+                for (let i = 0, len = data.length, pos = 0; i < len; i++) {
+                    data[i].copy(buf, pos);
+                    pos += data[i].length;
                 } ;
 
                 if (postURL.pathname === "/format_and_store_army" || postURL.pathname === "/getFormattedArmy") {
                     try {
                         let zip = new AdmZip(buf),
                             zipEntries = zip.getEntries();
-                    
+
                         for (let i = 0; i < zipEntries.length; i++)
                             parseXML(zip.readAsText(zipEntries[i]), (_err, result) => {
                                 fs.writeFile("output.json", JSON.stringify(result.roster.forces, null, 4), () =>{})
@@ -127,12 +127,12 @@ const file = new statik.Server('./site'),
                                     armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
                                     armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
 
-                                    fs.writeFile(`${PATH_PREFIX}${uuid}.json`, 
+                                    fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
                                                 JSON.stringify(armyDataObj, replacer)
-                                                    .replace(" & ", " and "), 
+                                                    .replace(" & ", " and "),
                                                 (err) => {
                                                     let content,status;
-            
+
                                                     if (!err) {
                                                         content = `{ "id": "${uuid}" }`;
                                                         status = 200;
@@ -141,7 +141,7 @@ const file = new statik.Server('./site'),
                                                         content = `{ "err": "${ERRORS.fileWrite}" }`;
                                                         status = 500
                                                     }
-            
+
                                                     sendHTTPResponse(res, content, status);
                                                 });
                                 }
@@ -162,13 +162,13 @@ const file = new statik.Server('./site'),
                 }
 
                 else if (postURL.pathname === "/getArmyCode") {
-                    try {                   
+                    try {
                         let armyData = JSON.parse(buf.toString());
-                        
+
                         sendHTTPResponse(res, `{ "code": "${uuid}" }`, 200);
-                        
-                        formatAndStoreXML(  uuid, 
-                                            armyData.order, 
+
+                        formatAndStoreXML(  uuid,
+                                            armyData.order,
                                             armyData.units,
                                             postURL.searchParams.get('uiHeight'),
                                             postURL.searchParams.get('uiWidth'),
@@ -180,12 +180,12 @@ const file = new statik.Server('./site'),
                             armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
                             armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","))
 
-                            fs.writeFile(`${PATH_PREFIX}${uuid}.json`, 
+                            fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
                                         JSON.stringify(armyDataObj, replacer)
-                                            .replace(" & ", " and "), 
+                                            .replace(" & ", " and "),
                                         (err) => {
                                             let content,status;
-    
+
                                             if (!err) {
                                                 content = `{ "id": "${uuid}" }`;
                                                 status = 200;
@@ -194,7 +194,7 @@ const file = new statik.Server('./site'),
                                                 content = `{ "err": "${ERRORS.fileWrite}" }`;
                                                 status = 500
                                             }
-    
+
                                             sendHTTPResponse(res, content, status);
                                         });
                         }
@@ -208,14 +208,14 @@ const file = new statik.Server('./site'),
                     }
                 }
             });
-        } 
+        }
         else if (req.method === "GET") {
             if (req.url === "/favicon.ico")
                 file.serveFile('/img/favicon.ico', 200, {}, req, res);
-            
+
             else if (req.url === "/")
                 file.serveFile(HOMEPAGE, 200, {}, req, res);
-            
+
             else {
                 let getURL = new URL(`http://${req.headers.host}${req.url}`);
 
@@ -224,7 +224,7 @@ const file = new statik.Server('./site'),
                         const id = getURL.searchParams.get('id').trim(),
                             fileData = fs.readFileSync(`${PATH_PREFIX}${id}.json`);
 
-                        if (!fileData) 
+                        if (!fileData)
                             sendHTTPResponse(res, `{ "err": "Roster not found!" }`, 404);
 
                         else
@@ -239,7 +239,7 @@ const file = new statik.Server('./site'),
 
                 else
                     file.serve(req, res);
-            } 
+            }
         }
     });
 
@@ -266,7 +266,7 @@ console.log('Server running at http://127.0.0.1:' + port + '/');
 
 setInterval(() => {
     fs.readdir(PATH_PREFIX, (err, files) => {
-        if (err) 
+        if (err)
             return;
 
         if (!files || typeof files[Symbol.iterator] !== 'function') {
@@ -320,7 +320,7 @@ function buildScript(modules) {
     scripts.push(...modulesToLoad.map(module => module.Module));
 
     scriptingMap.fill("\tnone");
-    
+
     for (const map of modulesToLoad.map(module => module.ScriptKeys))
         for (const [key, func] of Object.entries(map))
             scriptingMap[parseInt(key, 10)-1] = `\t--[[${key}]]${" ".repeat(3-key.length)+func}`;
@@ -348,7 +348,7 @@ function buildScript(modules) {
 /********* UNIT DATA TO XML *********/
 
 function formatAndStoreXML(id, order, armyData, uiHeight, uiWidth, decorativeNames, baseScript) {
-    
+
     storeFormattedXML(id, undefined, undefined, armyData, uiHeight, uiWidth, decorativeNames, baseScript, order);
     return;
 
@@ -356,7 +356,7 @@ function formatAndStoreXML(id, order, armyData, uiHeight, uiWidth, decorativeNam
     const xml = xmlBuilder.create().ele("ROOT");
     let totalHeight = 0;
     // TODO: return total height for scrollContainer, and xml to add to it
-    
+
     for (const unitID of order) {
         const unit = armyData[unitID],
             unitData = getUnitXMLData(unit);
@@ -397,7 +397,7 @@ function getUnitXMLData(unit) {
                 <Text class="modelDataName">${numberString}${modelName}</Text>
                 ${weapons}
                 ${abilities}
-            </VerticalLayout> 
+            </VerticalLayout>
             .
             .
             .
@@ -406,14 +406,14 @@ function getUnitXMLData(unit) {
 
 function getModelXMLData(model, modelID, unit) {
     const fragment = xmlBuilder.fragment(),
-        container = fragment.ele("VerticalLayout", { 
-            preferredWidth: "500", 
-            childForceExpandHeight: "false", 
-            class: "modelContainer", 
+        container = fragment.ele("VerticalLayout", {
+            preferredWidth: "500",
+            childForceExpandHeight: "false",
+            class: "modelContainer",
             id: `${unit.uuid}|${modelID}`
         });
     let height = 40; // name
-        
+
     combineAndSortWeapons(model, unit.weapons);
 
     container.ele("Text", { class: "modelDataName" }).txt((model.number > 1 ? `${model.number}x `: "") + model.name);
@@ -471,7 +471,7 @@ function getModelSectionData (name, dataList) {
 }
 
 function combineAndSortWeapons(model, characteristicProfiles) {
-    if (model.assignedWeapons && model.assignedWeapons.length) 
+    if (model.assignedWeapons && model.assignedWeapons.length)
         model.weapons = model.weapons.concat(model.assignedWeapons);
 
     model.weapons.sort((weaponA, weaponB) => {
@@ -481,7 +481,7 @@ function combineAndSortWeapons(model, characteristicProfiles) {
             typeB = characteristicProfiles[weaponB.name].type.match(weaponTypeRegex).groups.type.toLowerCase(),
             typeAVal = WEAPON_TYPE_VALUES[typeA] ? WEAPON_TYPE_VALUES[typeA] : 0,
             typeBVal = WEAPON_TYPE_VALUES[typeB] ? WEAPON_TYPE_VALUES[typeB] : 0;
-        
+
         if (typeAVal === typeBVal) return weaponA.name.localeCompare(weaponB.name);
 
         return typeAVal - typeBVal;
@@ -489,15 +489,15 @@ function combineAndSortWeapons(model, characteristicProfiles) {
 }
 
 function storeFormattedXML(id, xml, height, armyData, uiHeight, uiWidth, decorativeNames, baseScript, order) {
-    fs.writeFileSync(`${PATH_PREFIX}${id}.json`, JSON.stringify({ 
-        xml, 
-        order, 
-        height, 
+    fs.writeFileSync(`${PATH_PREFIX}${id}.json`, JSON.stringify({
+        xml,
+        order,
+        height,
         armyData: JSON.parse(sanitize(JSON.stringify(armyData))), // yes, I know this looks awful
-        uiHeight, 
-        uiWidth,  
+        uiHeight,
+        uiWidth,
         decorativeNames,
-        baseScript 
+        baseScript
     }));
 }
 
@@ -518,17 +518,17 @@ function sanitize(str) {
 
 
 function replacer(key, value) {
-    if (value instanceof Map) 
+    if (value instanceof Map)
         return Object.fromEntries(value.entries());
-    
-    else if (value instanceof Set) 
+
+    else if (value instanceof Set)
         return Array.from(value);
 
-    else 
+    else
         return value;
 }
 
 
 function log (data) {
     console.log(util.inspect(data, false, null, true));
-} 
+}

@@ -6,6 +6,7 @@ const http = require('http'),
     MODULE_PATH = "lua_modules",
     HOMEPAGE = "bs2tts.html";
 const {roszParse} = require("./bin/roszParser");
+const roszParser = require("./bin/Roster");
 
 
 const TEN_MINUTES = 600000,
@@ -99,7 +100,7 @@ const file = new statik.Server('./site'),
                             armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
 
                             fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
-                                JSON.stringify(armyDataObj, replacer)
+                                roszParser.serialize(armyDataObj)
                                     .replace(" & ", " and "),
                                 (err) => {
                                     let content, status;
@@ -115,7 +116,7 @@ const file = new statik.Server('./site'),
                                     sendHTTPResponse(res, content, status);
                                 });
                         } else
-                            sendHTTPResponse(res, JSON.stringify(armyDataObj, replacer), 200);
+                            sendHTTPResponse(res, roszParser.serialize(armyDataObj), 200);
                     }
                     catch (err) {
                         if (err.toString().includes("Invalid or unsupported zip format.")) {
@@ -305,19 +306,6 @@ function storeFormattedXML(id, xml, height, armyData, uiHeight, uiWidth, decorat
  */
 function sanitize(str) {
     return str.replace(SANITIZATION_REGEX, match => SANITIZATION_MAPPING[match]);
-}
-
-
-
-function replacer(key, value) {
-    if (value instanceof Map)
-        return Object.fromEntries(value.entries());
-
-    else if (value instanceof Set)
-        return Array.from(value);
-
-    else
-        return value;
 }
 
 module.exports.server = server

@@ -16,12 +16,12 @@ module.exports.parse = (data) => {
 
             return false;
         });
-    
+
         for (let unitData of armyUnitData) {
             let unit = new Unit(unitData.$.name, unitData.$.customName, unitData.$.type === "model");
-    
+
             unit.handleSelectionDataRecursive(unitData, null, true);
-    
+
             units.set(unit.uuid, unit.update());
         }
     }
@@ -30,6 +30,21 @@ module.exports.parse = (data) => {
 
     for (const uuid of units.keys())
         order.push(uuid);
-    
+
     return { units, order }
+}
+
+function replacer(key, value) {
+    if (value instanceof Map)
+        return Object.fromEntries(value.entries());
+
+    else if (value instanceof Set)
+        return Array.from(value);
+
+    else
+        return value;
+}
+
+module.exports.serialize = (roster, spaces = 0) =>  {
+    return JSON.stringify(roster, replacer, spaces)
 }

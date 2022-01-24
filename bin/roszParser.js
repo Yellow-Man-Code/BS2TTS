@@ -11,5 +11,6 @@ module.exports.roszParse = (rawData) => {
     }
 
     const result = parseXML(zip.readAsText(zipEntries[0]));
+
     return Roster.parse(result.roster.forces);
 };

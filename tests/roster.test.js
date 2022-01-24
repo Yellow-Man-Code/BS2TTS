@@ -3,6 +3,7 @@ const {roszParse} = require("../bin/roszParser");
 const approvals = require("approvals");
 const crypto = require("crypto");
 const fs = require("fs");
+const roszParser = require("../bin/Roster");
 
 function getTestNameSafe() {
     return expect.getState().currentTestName
@@ -11,15 +12,16 @@ function getTestNameSafe() {
 }
 
 test("parse roster", () => {
+    var id = 0
     const spy = jest.spyOn(crypto, "randomBytes").mockImplementation((size) => {
-        return Buffer.alloc(size, "X");
+        return Buffer.alloc(size, id++);
     });
 
     const fileContent = fs.readFileSync(path.join(__dirname, "../samples", "sample-army.rosz"));
 
     const roster = roszParse(fileContent);
 
-    spy.mockRestore();
+    approvals.verify(__dirname, getTestNameSafe(), roszParser.serialize(roster, 4))
 
-    approvals.verify(__dirname, getTestNameSafe(), JSON.stringify(roster, null, 4))
+    spy.mockRestore();
 });

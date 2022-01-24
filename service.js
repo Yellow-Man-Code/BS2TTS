@@ -79,61 +79,65 @@ const file = new statik.Server('./site'),
                     pos += data[i].length;
                 }
 
-                if (postURL.pathname === "/format_and_store_army" || postURL.pathname === "/getFormattedArmy") {
+                if (postURL.pathname === "/format_and_store_army") {
                     try {
                         let armyDataObj = roszParse(buf);
 
-                        if (postURL.pathname === "/format_and_store_army") {
-                            armyDataObj.uiHeight = postURL.searchParams.get('uiHeight');
-                            armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
-                            armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
+                        armyDataObj.uiHeight = postURL.searchParams.get('uiHeight');
+                        armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
+                        armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
+                        fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
+                            Roster.serialize(armyDataObj)
+                                .replace(" & ", " and "),
+                            (err) => {
+                                let content, status;
 
-                            fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
-                                Roster.serialize(armyDataObj)
-                                    .replace(" & ", " and "),
-                                (err) => {
-                                    let content, status;
+                                if (!err) {
+                                    content = `{ "id": "${uuid}" }`;
+                                    status = 200;
+                                } else {
+                                    content = `{ "err": "${ERRORS.fileWrite}" }`;
+                                    status = 500
+                                }
 
-                                    if (!err) {
-                                        content = `{ "id": "${uuid}" }`;
-                                        status = 200;
-                                    } else {
-                                        content = `{ "err": "${ERRORS.fileWrite}" }`;
-                                        status = 500
-                                    }
-
-                                    sendHTTPResponse(res, content, status);
-                                });
-                        } else
-                            sendHTTPResponse(res, Roster.serialize(armyDataObj), 200);
-                    }
-                    catch (err) {
+                                sendHTTPResponse(res, content, status);
+                            });
+                    } catch (err) {
                         if (err.toString().includes("Invalid or unsupported zip format.")) {
                             sendHTTPResponse(res, `{ "err": "${ERRORS.invalidFormat}" }`, 415);
                             console.log(err);
-                        }
-                        else {
+                        } else {
                             sendHTTPResponse(res, `{ "err": "${ERRORS.unknown}" }`, 500);
                             console.log(err);
                         }
                     }
-                }
-
-                else if (postURL.pathname === "/getArmyCode") {
+                } else if (postURL.pathname === "/getFormattedArmy") {
+                    try {
+                        let armyDataObj = roszParse(buf);
+                         sendHTTPResponse(res, Roster.serialize(armyDataObj), 200);
+                    } catch (err) {
+                        if (err.toString().includes("Invalid or unsupported zip format.")) {
+                            sendHTTPResponse(res, `{ "err": "${ERRORS.invalidFormat}" }`, 415);
+                            console.log(err);
+                        } else {
+                            sendHTTPResponse(res, `{ "err": "${ERRORS.unknown}" }`, 500);
+                            console.log(err);
+                        }
+                    }
+                } else if (postURL.pathname === "/getArmyCode") {
                     try {
                         let armyData = JSON.parse(buf.toString());
 
                         sendHTTPResponse(res, `{ "code": "${uuid}" }`, 200);
 
-                        formatAndStoreXML(  uuid,
-                                            armyData.order,
-                                            armyData.units,
-                                            postURL.searchParams.get('uiHeight'),
-                                            postURL.searchParams.get('uiWidth'),
-                                            postURL.searchParams.get('decorativeNames'),
-                                            buildScript(postURL.searchParams.get("modules").split(",")));
-                    }
-                    catch (err) {
+                        formatAndStoreXML(uuid,
+                            armyData.order,
+                            armyData.units,
+                            postURL.searchParams.get('uiHeight'),
+                            postURL.searchParams.get('uiWidth'),
+                            postURL.searchParams.get('decorativeNames'),
+                            buildScript(postURL.searchParams.get("modules").split(",")));
+                    } catch (err) {
                         sendHTTPResponse(res, `{ "err": "${ERRORS.unknown}" }`, 500);
                         console.log(err);
                     }

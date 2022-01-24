@@ -1,19 +1,14 @@
-require("util");
-const port = process.env.PORT || 3000,
-    http = require('http'),
+const http = require('http'),
     fs = require('fs'),
     crypto = require('crypto'),
-    AdmZip = require('adm-zip'),
-    parseXML = require('xml2js').parseString,
     path = require('path'),
     statik = require("node-static"),
     MODULE_PATH = "lua_modules",
-    HOMEPAGE = "bs2tts.html",
-    Roster = require("./bin/Roster");
+    HOMEPAGE = "bs2tts.html";
+const {roszParse} = require("./bin/roszParser");
 
 
-const ONE_MINUTE = 60000,
-    TEN_MINUTES = 600000,
+const TEN_MINUTES = 600000,
     PATH_PREFIX = "files/",
     FILE_NAME_REGEX = /(?<name>.+?)(?=.json)/,
 
@@ -96,41 +91,31 @@ const file = new statik.Server('./site'),
 
                 if (postURL.pathname === "/format_and_store_army" || postURL.pathname === "/getFormattedArmy") {
                     try {
-                        let zip = new AdmZip(buf),
-                            zipEntries = zip.getEntries();
+                        let armyDataObj = roszParse(buf);
 
-                        for (let i = 0; i < zipEntries.length; i++)
-                            parseXML(zip.readAsText(zipEntries[i]), (_err, result) => {
-                                fs.writeFile("output.json", JSON.stringify(result.roster.forces, null, 4), () =>{})
+                        if (postURL.pathname === "/format_and_store_army") {
+                            armyDataObj.uiHeight = postURL.searchParams.get('uiHeight');
+                            armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
+                            armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
 
-                                let armyDataObj = Roster.parse(result.roster.forces);
+                            fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
+                                JSON.stringify(armyDataObj, replacer)
+                                    .replace(" & ", " and "),
+                                (err) => {
+                                    let content, status;
 
-                                if (postURL.pathname === "/format_and_store_army") {
-                                    armyDataObj.uiHeight = postURL.searchParams.get('uiHeight');
-                                    armyDataObj.uiWidth = postURL.searchParams.get('uiWidth');
-                                    armyDataObj.baseScript = buildScript(postURL.searchParams.get("modules").split(","));
+                                    if (!err) {
+                                        content = `{ "id": "${uuid}" }`;
+                                        status = 200;
+                                    } else {
+                                        content = `{ "err": "${ERRORS.fileWrite}" }`;
+                                        status = 500
+                                    }
 
-                                    fs.writeFile(`${PATH_PREFIX}${uuid}.json`,
-                                                JSON.stringify(armyDataObj, replacer)
-                                                    .replace(" & ", " and "),
-                                                (err) => {
-                                                    let content,status;
-
-                                                    if (!err) {
-                                                        content = `{ "id": "${uuid}" }`;
-                                                        status = 200;
-                                                    }
-                                                    else {
-                                                        content = `{ "err": "${ERRORS.fileWrite}" }`;
-                                                        status = 500
-                                                    }
-
-                                                    sendHTTPResponse(res, content, status);
-                                                });
-                                }
-                                else
-                                    sendHTTPResponse(res, JSON.stringify(armyDataObj, replacer), 200);
-                            });
+                                    sendHTTPResponse(res, content, status);
+                                });
+                        } else
+                            sendHTTPResponse(res, JSON.stringify(armyDataObj, replacer), 200);
                     }
                     catch (err) {
                         if (err.toString().includes("Invalid or unsupported zip format.")) {

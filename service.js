@@ -7,6 +7,7 @@ const http = require('http'),
     HOMEPAGE = "bs2tts.html";
 const {roszParse} = require("./bin/roszParser");
 const Roster = require("./bin/Roster");
+const ttsScript = require("./bin/ttsScript");
 
 
 const TEN_MINUTES = 600000,
@@ -32,19 +33,6 @@ const TEN_MINUTES = 600000,
         </p>`
             .replace(/[\n\r]/g, "\\n"),
         rosterNotFound: "Your roster code appears to have expired, please upload it again and get a new code."
-    },
-
-    MODULES = {
-        MatchedPlay: {
-            Constants: null,
-            Module: null,
-            ScriptKeys: null
-        },
-        Crusade: {
-            Constants: null,
-            Module: null,
-            ScriptKeys: null
-        }
     },
     SANITIZATION_MAPPING = {
         " & ": " and ",
@@ -210,18 +198,10 @@ function cleanFiles() {
     });
 }
 
-function loadModules() {
-    let moduleMapText = fs.readFileSync(path.join(MODULE_PATH, "module_mapping.json"));
+var scriptBuilder;
 
-    for (const [name, module] of Object.entries(JSON.parse(moduleMapText))) {
-        if (!MODULES[name]) continue;
-        for (const [field, fieldData] of Object.entries(module)) {
-            if (field === "ScriptKeys")
-                MODULES[name].ScriptKeys = fieldData;
-            else
-                MODULES[name][field] = fs.readFileSync(path.join(MODULE_PATH, fieldData));
-        }
-    }
+function loadModules() {
+    scriptBuilder = new ttsScript.ScriptBuilder(MODULE_PATH);
 }
 
 /**
@@ -230,45 +210,8 @@ function loadModules() {
  * @returns A string containing the fully formatted lua scripting for the army
  */
 function buildScript(modules) {
-    let scripts = [],
-        scriptingMap = [],
-        modulesToLoad = modules.map(name => MODULES[name])
-                                .filter(module => module);
-
-        scriptingMap.length = 10;
-
-    // load constants first because I always want them at the top
-    scripts.push("local scriptingFunctions");
-    scripts.push(...modulesToLoad.map(module => module.Constants));
-    scripts.push(...modulesToLoad.map(module => module.Module));
-
-    scriptingMap.fill("\tnone");
-
-    for (const map of modulesToLoad.map(module => module.ScriptKeys))
-        for (const [key, func] of Object.entries(map))
-            scriptingMap[parseInt(key, 10)-1] = `\t--[[${key}]]${" ".repeat(3-key.length)+func}`;
-
-    scripts.push(`-- this needs to be defined after all scripting functions\nscriptingFunctions = {\n${scriptingMap.join(",\n")}\n}`);
-
-    return "\n".repeat(5) + scripts.join("\n".repeat(5));
+    return scriptBuilder.build(modules);
 }
-
-
-
-
-
-/********* ROSTER PARSING FOR .rosz FILES *********/
-
-
-
-
-
-
-
-
-
-
-/********* UNIT DATA TO XML *********/
 
 function formatAndStoreXML(id, order, armyData, uiHeight, uiWidth, decorativeNames, baseScript) {
     storeFormattedXML(id, undefined, undefined, armyData, uiHeight, uiWidth, decorativeNames, baseScript, order);
@@ -286,11 +229,6 @@ function storeFormattedXML(id, xml, height, armyData, uiHeight, uiWidth, decorat
         baseScript
     }));
 }
-
-
-
-
-
 
 /**
  * Replaces any troublesome characters with "sanitized" versions so as to not break scripting

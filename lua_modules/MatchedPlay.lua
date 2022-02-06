@@ -371,7 +371,7 @@ function hideCard(player, card)
         if element.attributes ~= nil and
             element.attributes.id ~= nil and
             (element.attributes.id:find("^ymc%-")) ~= nil and -- if we find a card 
-            element.attributes.active = true then
+            element.attributes.active == true then
                 return -- we found a card that is still visible, so we dont want to reset the UI
         end
 

@@ -50,7 +50,7 @@ module.exports = class ModelCollection {
         //console.log("selections: " + selectionData);
 
         if (selectionData && selectionData[0] !== "" && selectionData[0].selection)
-            newModel.handleSelectionDataRecursive(selectionData);
+            newModel.handleSelectionDataRecursive(selectionData, newModel.number);
 
         this.add(newModel);
     }
